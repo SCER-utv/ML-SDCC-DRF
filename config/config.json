@@ -1,0 +1,21 @@
+{
+  "model_id": "rf_distributed",
+  "models_directory": "models/checkpoints/",
+
+  "inference_chunksize": 500000,
+
+  "split_ratios": {
+    "train": 0.70
+  },
+
+  "dataset_registry": {
+    "taxi": {
+      "target": "Label",
+      "type": "regression"
+    },
+    "airlines": {
+      "target": "Label",
+      "type": "classification"
+    }
+  }
+}
