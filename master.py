@@ -22,54 +22,28 @@ def extend_client_sqs_visibility(aws, queue_url, receipt_handle, stop_event):
                 pass
 
 
-# translates the client's thin payload into concrete and secure s3 paths for the master
-def resolve_paths(job_data, config, aws):
-    is_custom = job_data.get('is_custom', False)
-    mode = job_data.get('mode')
-    bucket = aws.bucket
-    job_id = job_data.get('job_id')
-    needs_split = job_data.get('needs_split', False)
+# NUOVA VERSIONE MINIMALISTA: prende gli URL diretti e crea le chiavi S3 piatte
+def resolve_paths(job_data):
+    job_id = job_data['job_id']
 
-    experiment_name = job_data.get('experiment_name')
+    # Estraiamo direttamente gli URL nudi e crudi forniti dal client
+    train_url = job_data.get('train_url', "")
+    test_url = job_data.get('test_url', "")
 
-    train_url, test_url, metrics_key, raw_source = "", "", "", None
+    # Struttura piatta per i risultati S3
+    metrics_key = f"metrics/{job_id}_results.csv"
 
-    if not is_custom:
-        # handle official benchmark datasets (gold standard)
-        meta = config['datasets_metadata'][job_data['dataset']][job_data['dataset_variant']]
-        metrics_key = f"results/{job_data['dataset']}/{job_data['dataset']}_{job_data['dataset_variant']}_distributed_results.csv"
-
-        train_url = f"s3://{bucket}/{meta['train_path']}"
-        test_url = f"s3://{bucket}/{meta['test_path']}"
-
-        if needs_split:
-            raw_source = f"s3://{bucket}/{meta['interim_path']}"
-
-    else:
-        # handle user-provided datasets and custom experiments
-        folder = f"experiments/{experiment_name}" if experiment_name else f"splits/{job_id}"
-        file_name = experiment_name if experiment_name else job_id
-        metrics_key = f"{folder}/{file_name}_distributed_results.csv"
-
-        if needs_split:
-            # Sappiamo già come si chiameranno i file finali
-            train_url = f"s3://{bucket}/{folder}/train.csv"
-            test_url = f"s3://{bucket}/{folder}/test.csv"
-            raw_source = job_data.get('custom_train_url')
-        else:
-            train_url = job_data.get('custom_train_url', "")
-            test_url = job_data.get('custom_test_url', "")
-
+    # Manteniamo la classe JobPaths per compatibilità con le pipeline,
+    # ma disattiviamo lo split (raw_source_to_split=None)
     dataset_paths = JobPaths(
         train_url=train_url,
         test_url=test_url,
         metrics_key=metrics_key,
-        raw_source_to_split=raw_source
+        raw_source_to_split=None
     )
 
     job_data['dataset_paths'] = dataset_paths
     return job_data
-
 
 
 # initializes components and starts the main event loop to orchestrate client jobs
@@ -83,7 +57,7 @@ def main():
     inferencer = InferencePipeline(aws, evaluator)
 
     CLIENT_QUEUE_URL = aws.sqs_queues["client"]
-    print(" [MASTER] System ready. Listening for new Jobs from client...")
+    print(" [MASTER] System ready. Listening for pure computation Jobs from client...")
 
     while True:
         response = aws.sqs_client.receive_message(QueueUrl=CLIENT_QUEUE_URL, MaxNumberOfMessages=1, WaitTimeSeconds=20)
@@ -99,8 +73,8 @@ def main():
 
             print(f"\n{'=' * 50}\n STARTING PIPELINE: {job_id} (Mode: {mode})\n{'=' * 50}")
 
-            # securely resolve and assign authoritative s3 paths
-            job_data = resolve_paths(raw_job_data, config, aws)
+            # Chiamata pulita, senza bisogno di config o aws
+            job_data = resolve_paths(raw_job_data)
 
             stop_event = threading.Event()
             heartbeat_thread = threading.Thread(target=extend_client_sqs_visibility,
@@ -126,6 +100,7 @@ def main():
                 error_msg = str(e)
                 print(f" [CRITICAL ERROR] Pipeline execution failed: {error_msg}")
 
+                # NATIVE FAULT TOLERANCE: Invia l'errore al client tramite SQS
                 try:
                     error_payload = {
                         "job_id": job_id,

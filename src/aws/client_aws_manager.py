@@ -4,7 +4,8 @@ import time
 import joblib
 import boto3
 
-# handles all communications between the local client and the aws infrastructure
+
+# Handles all communications between the local client and the AWS infrastructure
 class ClientAWSManager:
 
     def __init__(self, config):
@@ -15,7 +16,7 @@ class ClientAWSManager:
         if not self.bucket:
             raise ValueError(" [CRITICAL] S3_BUCKET_NAME environment variable is not set!")
 
-        #2. initializing aws clients
+        # 2. Initializing AWS clients
         self.s3_client = boto3.client('s3', region_name=self.region)
         self.sqs_client = boto3.client('sqs', region_name=self.region)
         self.ssm_client = boto3.client('ssm', region_name=self.region)
@@ -23,12 +24,12 @@ class ClientAWSManager:
         config_key = os.getenv("S3_CONFIG_KEY", "config/ssm_paths.json")
         ssm_paths = self._load_remote_config(config_key)
 
-        # 3. initializing queues by retrieving name from ssm and url
-        print(" [INIT] SQS URL dynamic runtime resolution ......")
+        # 3. Initializing queues by retrieving name from SSM and URL
+        print(" [INIT] SQS URL dynamic runtime resolution ...")
         self.client_queue_url = self._resolve_sqs_url(self._get_ssm_parameter(ssm_paths.get("sqs_client")))
         self.client_resp_queue = self._resolve_sqs_url(self._get_ssm_parameter(ssm_paths.get("sqs_client_resp")))
 
-    # used to load ssm path file from s3
+    # Used to load the SSM path file from S3
     def _load_remote_config(self, key):
         try:
             print(f" [INIT] Download infrastructural configuration from s3://{self.bucket}/{key}...")
@@ -36,9 +37,10 @@ class ClientAWSManager:
             config_data = json.loads(response['Body'].read().decode('utf-8'))
             return config_data
         except Exception as e:
-            print(f" [CRITICAL ERROR] Impossible to load configuration {key} da S3: {e}")
+            print(f" [CRITICAL ERROR] Impossible to load configuration {key} from S3: {e}")
             raise e
 
+    # Retrieves a parameter from AWS SSM Parameter Store
     def _get_ssm_parameter(self, param_name):
         try:
             response = self.ssm_client.get_parameter(Name=param_name, WithDecryption=False)
@@ -47,6 +49,7 @@ class ClientAWSManager:
             print(f" [SSM ERROR] Impossible to extract parameter {param_name}: {e}")
             raise e
 
+    # Resolves the exact queue URL given its name
     def _resolve_sqs_url(self, queue_name):
         try:
             response = self.sqs_client.get_queue_url(QueueName=queue_name)
@@ -55,19 +58,21 @@ class ClientAWSManager:
             print(f" [SQS ERROR] Impossible to resolute URL for the queue '{queue_name}': {e}")
             raise e
 
-
-    # scans s3 to find all trained models for a given dataset
-    def list_available_models(self, dataset):
-        prefix = f"models/{dataset}/"
+    # Scans S3 to find all trained models using the flat architecture
+    def list_available_models(self):
+        prefix = "models/"
         resp = self.s3_client.list_objects_v2(Bucket=self.bucket, Prefix=prefix, Delimiter='/')
         models = []
+
         if 'CommonPrefixes' in resp:
             for obj in resp['CommonPrefixes']:
+                # The folder name itself is the job_id (e.g., job_100trees_4workers_1776195424)
                 folder_name = obj['Prefix'].replace(prefix, '').strip('/')
                 models.append(folder_name)
+
         return models
 
-    # reads the header of a csv on s3 on-the-fly to guide the user in real-time input
+    # Reads the header of a CSV on S3 on-the-fly to guide the user in real-time input
     def get_feature_names_from_s3(self, s3_key, target_column="Label"):
         try:
             response = self.s3_client.get_object(Bucket=self.bucket, Key=s3_key)
@@ -83,11 +88,13 @@ class ClientAWSManager:
             print(f" [WARNING] Unable to read header from S3: {e}")
             return []
 
-    # downloads worker .joblib files and merges them into a single local scikit-learn model
-    def download_and_merge_model(self, dataset, job_id):
+    # Downloads worker .joblib files and merges them into a single local Scikit-Learn model
+    def download_and_merge_model(self, target_model):
         print(f"\n" + "-" * 40)
-        print(f" [DOWNLOAD] Fetching model chunks for {job_id}...")
-        prefix = f"models/{dataset}/{job_id}/"
+        print(f" [DOWNLOAD] Fetching model chunks for {target_model}...")
+
+        # Searching chunks directly in models/<target_model>/
+        prefix = f"models/{target_model}/"
         resp = self.s3_client.list_objects_v2(Bucket=self.bucket, Prefix=prefix)
 
         if 'Contents' not in resp:
@@ -126,7 +133,7 @@ class ClientAWSManager:
         except:
             pass
 
-        output_filename = f"{job_id}_aggregated.pkl"
+        output_filename = f"{target_model}_aggregated.pkl"
         joblib.dump(base_model, output_filename)
 
         print("\n" + "=" * 60)
@@ -135,15 +142,17 @@ class ClientAWSManager:
         print(f" Total Trees: {base_model.n_estimators}")
         print("=" * 60 + "\n")
 
-    # dispatches the job to the master node and patiently waits for the response
+    # Dispatches the job to the Master Node and patiently waits for the response
     def dispatch_and_wait(self, payload):
         print("\n" + "=" * 60)
         print(" Dispatching request to Master Node...")
 
         try:
             self.sqs_client.send_message(
-                QueueUrl=self.client_queue_url, MessageBody=json.dumps(payload),
-                MessageGroupId="ML_Jobs", MessageDeduplicationId=payload['job_id']
+                QueueUrl=self.client_queue_url,
+                MessageBody=json.dumps(payload),
+                MessageGroupId="ML_Jobs",
+                MessageDeduplicationId=payload['job_id']
             )
             print(f" [SUCCESS] Message enqueued successfully.")
             print(f" [INFO] Generated Job ID: {payload['job_id']}")
@@ -158,17 +167,18 @@ class ClientAWSManager:
             while time.time() - start_wait < 900:
                 res = self.sqs_client.receive_message(QueueUrl=self.client_resp_queue, MaxNumberOfMessages=1,
                                                       WaitTimeSeconds=20)
+
                 if 'Messages' in res:
                     for msg in res['Messages']:
                         body = json.loads(msg['Body'])
                         receipt = msg['ReceiptHandle']
 
-                        # check if it's the response for our exact job
+                        # Check if it's the response for our exact job
                         if body.get("job_id") == payload['job_id']:
                             print("\n" + "=" * 60)
 
                             if body.get("status") == "FAILED":
-                                print("CRITICAL ERROR FROM MASTER NODE")
+                                print(" CRITICAL ERROR FROM MASTER NODE")
                                 print("=" * 60)
                                 print(f" REASON: {body.get('message', 'Unknown Error')}")
                                 print("=" * 60 + "\n")
@@ -177,6 +187,7 @@ class ClientAWSManager:
                                 result_found = True
                                 break
 
+                            # Handle SUCCESS responses based on the mode
                             if payload['mode'] == 'train':
                                 print(" DISTRIBUTED TRAINING COMPLETED!")
                                 print("=" * 60)
@@ -185,7 +196,7 @@ class ClientAWSManager:
                                 print(" END-TO-END PIPELINE COMPLETED SUCCESSFULLY!")
                                 print("=" * 60)
                                 print(f" YOUR MODEL ID IS: >>> {body.get('job_id')} <<<")
-                                print(" Metrics(RMSE/ROC-AUC) saved on S3.")
+                                print(" Metrics saved on S3.")
                             elif payload['mode'] == 'infer':
                                 print(" REAL-TIME PREDICTION RECEIVED!")
                                 print("=" * 60)
@@ -203,10 +214,13 @@ class ClientAWSManager:
                             result_found = True
                             break
                         else:
-                            # not for us, put the message back in the queue immediately
+                            # Not for us, put the message back in the queue immediately
                             try:
-                                self.sqs_client.change_message_visibility(QueueUrl=self.client_resp_queue,
-                                                                          ReceiptHandle=receipt, VisibilityTimeout=0)
+                                self.sqs_client.change_message_visibility(
+                                    QueueUrl=self.client_resp_queue,
+                                    ReceiptHandle=receipt,
+                                    VisibilityTimeout=0
+                                )
                             except Exception:
                                 pass
                 if result_found:

@@ -5,32 +5,36 @@ from sklearn.metrics import roc_auc_score, accuracy_score, mean_squared_error, r
     precision_score, recall_score, f1_score
 
 
-# handles the aggregation of worker results and metrics calculation on the master
+# Handles the aggregation of worker results and metrics calculation on the master
 class EvaluationManager:
 
-    # initializes the manager with an aws manager instance for s3 operations
+    # Initializes the manager with an AWS manager instance for S3 operations
     def __init__(self, aws_manager):
         self.aws = aws_manager
 
-    # orchestrates the final aggregation and evaluation phase using metadata from the payload
-    def aggregate_and_evaluate(self, job_data, job_id, dataset_name, dataset_variant, s3_inference_results, num_workers,
+    # Orchestrates the final aggregation and evaluation phase using metadata from the payload
+    def aggregate_and_evaluate(self, job_data, job_id, s3_inference_results, num_workers,
                                trees, weights, train_time, infer_time, strategy):
         print("\n" + "=" * 50)
         print(" FINAL AGGREGATION & EVALUATION PHASE")
         print("=" * 50)
 
-        dataset_paths = job_data['dataset_paths']
-        task_type = job_data['task_type']
-        target_col = job_data['target_column']
-        test_s3_uri = dataset_paths.test_url
+        task_type = job_data.get('task_type')
+        target_col = job_data.get('target_column', 'Label')
+        test_s3_uri = job_data.get('test_url')
+        train_s3_uri = job_data.get('train_url')
+
+        if not test_s3_uri:
+            print(" [CRITICAL ERROR] Test URL missing. Cannot perform evaluation.")
+            return
 
         predictions_list = self._download_worker_results(s3_inference_results)
         if not predictions_list:
             return
 
-        print(f" Reading Ground Truth from column '{target_col}'...")
+        print(f" Reading Ground Truth from column '{target_col}' in {test_s3_uri}...")
 
-        # reads the ground truth column directly from the test set on s3
+        # Reads the ground truth column directly from the test set on S3
         try:
             df_test = pd.read_csv(test_s3_uri, usecols=[target_col])
             y_true = df_test[target_col].values
@@ -38,7 +42,7 @@ class EvaluationManager:
             print(f" [CRITICAL ERROR] Test set loading failure: {e}")
             return
 
-        # routes to the appropriate evaluation logic based on task type
+        # Routes to the appropriate evaluation logic based on task type
         if task_type == 'classification':
             metrics_dict = self._evaluate_classification(predictions_list, y_true, num_workers)
         else:
@@ -47,32 +51,49 @@ class EvaluationManager:
         print("=" * 50 + "\n")
 
         strategy_name = "Homogeneous" if strategy == "homogeneous" else "Heterogeneous"
-        experiment_name = job_data['experiment_name']
+        metrics_key = f"metrics/{job_id}_results.csv"
 
-        metrics_key = dataset_paths.metrics_key
+        target_model = job_data.get('target_model', job_id)
 
-        # saves the final metrics and cleans up temporary inference files
-        self.aws.save_metrics(test_s3_uri, experiment_name, dataset_name, dataset_variant, num_workers, trees,
-                              strategy_name, train_time,
-                              infer_time, metrics_dict, metrics_key)
+        # Saves the final metrics and cleans up temporary inference files
+        self.aws.save_metrics(
+            job_id=job_id,
+            target_model=target_model,
+            train_s3_uri=train_s3_uri,
+            test_s3_uri=test_s3_uri,
+            num_workers=num_workers,
+            trees=trees,
+            strategy_name=strategy_name,
+            train_time=train_time,
+            infer_time=infer_time,
+            metrics_dict=metrics_dict,
+            metrics_key=metrics_key
+        )
+
         self.aws.cleanup_s3_inference_files(s3_inference_results)
 
-    # downloads and loads temporary .npy files containing worker predictions
+    # Downloads and loads temporary .npy files containing worker predictions
     def _download_worker_results(self, s3_inference_results):
         predictions_list = []
         print(f" Downloading {len(s3_inference_results)} inference result files from S3...")
+
         for task_id, s3_uri in s3_inference_results.items():
             bucket, key = self.aws.parse_s3_uri(s3_uri)
             local_path = f"/tmp/res_{task_id}.npy"
-            self.aws.s3_client.download_file(bucket, key, local_path)
-            predictions_list.append(np.load(local_path))
-            os.remove(local_path)
+
+            try:
+                self.aws.s3_client.download_file(bucket, key, local_path)
+                predictions_list.append(np.load(local_path))
+                os.remove(local_path)
+            except Exception as e:
+                print(f" [WARNING] Failed to download or load {s3_uri}: {e}")
 
         if not predictions_list:
             print(" [CRITICAL ERROR] No result downloaded. Impossible to aggregate")
+
         return predictions_list
 
-    # evaluates classification tasks using majority voting
+    # Evaluates classification tasks using majority voting
     def _evaluate_classification(self, predictions_list, y_true, num_workers):
         print(" [EVALUATION] Classification task detected. Executing Majority Voting...")
         total_votes = np.sum(predictions_list, axis=0)
@@ -100,11 +121,14 @@ class EvaluationManager:
             f"\n GLOBAL DISTRIBUTED RESULTS:\n ROC-AUC: {auc:.4f}\n Accuracy: {acc:.4f}\n Precision: {precision:.4f}\n Recall: {recall:.4f}\n F1-Score: {f1:.4f}")
 
         return {
-            'ROC-AUC': float(round(auc, 4)), 'Accuracy': float(round(acc, 4)),
-            'Precision': float(round(precision, 4)), 'Recall': float(round(recall, 4)), 'F1-Score': float(round(f1, 4))
+            'ROC-AUC': float(round(auc, 4)),
+            'Accuracy': float(round(acc, 4)),
+            'Precision': float(round(precision, 4)),
+            'Recall': float(round(recall, 4)),
+            'F1-Score': float(round(f1, 4))
         }
 
-    # evaluates regression tasks using weighted averaging based on tree count
+    # Evaluates regression tasks using weighted averaging based on tree count
     def _evaluate_regression(self, predictions_list, y_true, weights):
         print(" [EVALUATION] Regression task detected. Executing Weighted Averaging...")
         y_pred = np.average(predictions_list, axis=0, weights=weights)
@@ -116,4 +140,8 @@ class EvaluationManager:
 
         print(f"\n GLOBAL DISTRIBUTED RESULTS:\n RMSE: {rmse:.4f}\n MAE: {mae:.4f}\n R2 Score: {r2:.4f}")
 
-        return {'RMSE': float(round(rmse, 4)), 'MAE': float(round(mae, 4)), 'R2 Score': float(round(r2, 4))}
+        return {
+            'RMSE': float(round(rmse, 4)),
+            'MAE': float(round(mae, 4)),
+            'R2 Score': float(round(r2, 4))
+        }

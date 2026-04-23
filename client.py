@@ -1,12 +1,12 @@
 import sys
 import time
-from datetime import datetime
 
 from src.utils.config import load_config
 from src.aws.client_aws_manager import ClientAWSManager
 from src.client.cli_prompts import CLI
 
-# main entry point for the interactive command-line interface
+
+# Main entry point for the interactive command-line interface
 def main():
     try:
         config = load_config()
@@ -19,19 +19,11 @@ def main():
 
     cli.show_welcome()
 
-    # gather user intentions and operation flow through interactive prompts
+    # Gather user intentions and operation flow through interactive prompts
     mode = cli.prompt_operation_mode()
+
+    # Prompt user directly for the necessary URLs based on the selected mode
     dataset_info = cli.prompt_dataset_selection(mode)
-
-    experiment_name = None
-    if dataset_info['is_custom']:
-        experiment_name = cli.prompt_experiment_name()
-
-        if experiment_name:
-            dataset_info['variant'] = experiment_name
-        else:
-            dataset_info['variant'] = "user_provided"
-
 
     cluster_config = {}
     if mode in ['train', 'train_and_infer']:
@@ -39,72 +31,53 @@ def main():
 
     target_model = None
     if mode in ['infer', 'bulk_infer', 'download']:
-        target_model = cli.prompt_model_selection(aws, dataset_info)
+        target_model = cli.prompt_model_selection(aws)
 
     if mode == 'download':
-        aws.download_and_merge_model(dataset_info['name'], target_model)
+        aws.download_and_merge_model(target_model)
         sys.exit(0)
 
-    # handle real-time inference inputs and feature extraction
+    # Handle real-time inference inputs and feature extraction
     tuple_data = None
     if mode == 'infer':
-        s3_key = ""
-        if dataset_info['is_custom']:
-            # Usiamo .get() per sicurezza e controlliamo che l'URL non sia None prima di fare .replace()
-            raw_url = dataset_info.get('train_url') or dataset_info.get('test_url')
+        # Safely extract the train_url to fetch CSV headers for user guidance
+        train_url = dataset_info.get('train_url', "")
+        s3_key = train_url.replace(f"s3://{aws.bucket}/", "") if train_url else ""
 
-            if raw_url:
-                s3_key = raw_url.replace(f"s3://{aws.bucket}/", "")
-            else:
-                # Se non c'è proprio nessun URL, s3_key rimane "" e non crasha
-                pass
-        else:
-            s3_key = cli.datasets_metadata[dataset_info['name']][dataset_info['variant']]['train_path']
-
-        # Ora passiamo s3_key a prompt_realtime_input
         tuple_data = cli.prompt_realtime_input(aws, s3_key, dataset_info)
 
-    # construct the thin payload representing the client contract for the master node
-    dataset = dataset_info['name']
-    dataset_variant = dataset_info['variant']
-
-    req_id = f"req_{dataset}_{dataset_variant}_{int(datetime.now().timestamp())}"
+    # Generate a clean, flat Job ID
+    timestamp = int(time.time())
     if mode in ['train', 'train_and_infer']:
         w = cluster_config.get('workers', 0)
         t = cluster_config.get('trees', 0)
-        s = cluster_config.get('strategy', 'homogeneous')
-        job_id = f"job_{dataset}_{dataset_variant}_{t}trees_{w}workers_{s}_{int(time.time())}"
+        job_id = f"job_{t}trees_{w}workers_{timestamp}"
     else:
-        job_id = req_id
+        job_id = f"req_{timestamp}"
 
-    # this dictionary encapsulates the entire job configuration sent to the master
+    # Construct the minimal payload representing the client contract for the master node
     payload = {
         "mode": mode,
         "job_id": job_id,
-        "experiment_name": experiment_name,
-        "is_custom": dataset_info['is_custom'],
-        "dataset": dataset,
-        "dataset_variant": dataset_variant,
-
-        # include manually entered urls if present
-        "custom_train_url": dataset_info.get('train_url'),
-        "custom_test_url": dataset_info.get('test_url'),
-
-        "target_column": dataset_info['target_col'],
-        "task_type": dataset_info['task_type'],
-        "needs_split": dataset_info['needs_split'],
+        "train_url": dataset_info.get('train_url', ""),
+        "test_url": dataset_info.get('test_url', ""),
+        "target_column": dataset_info.get('target_col', ""),
+        "task_type": dataset_info.get('task_type', "classification"),
 
         "num_workers": cluster_config.get('workers', 0),
         "num_trees": cluster_config.get('trees', 0),
         "strategy": cluster_config.get('strategy', 'homogeneous'),
         "custom_hyperparams": cluster_config.get('custom_hyperparams'),
+        "strategies_url": cluster_config.get('strategies_url', ""),
 
         "target_model": target_model,
         "tuple_data": tuple_data,
         "client_start_time": time.time()
     }
 
-    # dispatch the payload to the queue and wait for cluster response
+    print(f" [SYSTEM] Dispatching job {job_id} to the cluster...")
+
+    # Dispatch the payload to the queue and wait for cluster response
     aws.dispatch_and_wait(payload)
 
 
