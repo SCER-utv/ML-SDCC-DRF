@@ -29,6 +29,19 @@ class InferencePipeline:
         # 2. Fault tolerance state recovery
         historical_train_time, s3_inference_results, start_infer, original_train_url = self._recover_bulk_state(job_id, target_model)
 
+        """
+        # ==========================================================
+        # TEST 2.3 (MASTER CRASH PRE-FANOUT INFERENCE)
+        # ==========================================================
+        print("\n" + "!"*50)
+        print(" [TEST 2.3] ABOUT TO DISPATCH BULK INFERENCE TASKS.")
+        print(" [TEST 2.3] You have 15 seconds to kill the Master!")
+        print(" [TEST 2.3] DynamoDB state is recovered, SQS is empty.")
+        print("!"*50 + "\n")
+        time.sleep(15)
+        # ==========================================================
+        """
+
         # 3. Fan-out task generation
         self._dispatch_bulk_tasks(job_id, test_url, model_s3_uris, s3_inference_results)
         self.aws.update_job_state(job_id, set(), s3_inference_results, start_infer, True, historical_train_time, 0.0, original_train_url)
@@ -36,6 +49,19 @@ class InferencePipeline:
         # 4. Wait for workers to process chunks
         inference_time = self._wait_for_bulk_workers(job_id, num_workers, s3_inference_results, start_infer,
                                                      historical_train_time, original_train_url)
+
+        """
+        # ==========================================================
+        # TEST 2.6 (MASTER CRASH BEFORE FINAL AGGREGATION)
+        # ==========================================================
+        print("\n" + "!"*50)
+        print(" [TEST 2.6] ALL ACKS RECEIVED. WORKERS ARE IDLE.")
+        print(" [TEST 2.6] You have 15 seconds to kill the Master!")
+        print(" [TEST 2.6] Upon restart, it should JUMP DIRECTLY to Evaluation!")
+        print("!"*50 + "\n")
+        time.sleep(15)
+        # ==========================================================
+        """
 
         # 5. Delegate final evaluation and metric calculation
         num_trees, weights, strat = self._calculate_inference_weights(target_model, num_workers)
@@ -84,6 +110,19 @@ class InferencePipeline:
         # 3. Rapidly gather votes from memory
         total_received_votes, pure_inference_time = self._wait_for_realtime_workers(num_workers, inference_pure_start)
 
+        """
+        # ==========================================================
+        # TEST 3.4 (MASTER CRASH DURING REAL-TIME AGGREGATION)
+        # ==========================================================
+        print("\n" + "!"*50)
+        print(" [TEST 3.4] ALL VOTES GATHERED IN RAM. READY TO AGGREGATE.")
+        print(" [TEST 3.4] You have 15 seconds to kill the Master!")
+        print(" [TEST 3.4] RAM will be wiped. Master MUST restart from scratch.")
+        print("!"*50 + "\n")
+        time.sleep(15)
+        # ==========================================================
+        """
+
         # 4. Aggregate votes via majority or mean
         final_prediction, task_str = self._aggregate_realtime_results(task_type, total_received_votes)
 
@@ -122,11 +161,34 @@ class InferencePipeline:
                 self.aws.sqs_client.send_message(QueueUrl=infer_queue, MessageBody=json.dumps(infer_task))
                 print(f" [INFER DISPATCH] Task {task_id} sent to inference queue.")
 
+                # ==========================================================
+                # TEST 2.4 (MASTER CRASH MID-FANOUT INFERENCE)
+                # ==========================================================
+                if i == len(model_s3_uris) // 2:
+                    print("\n" + "!"*50)
+                    print(f" [TEST 2.4] MID-FANOUT: {i+1} / {len(model_s3_uris)} TASKS SENT.")
+                    print(" [TEST 2.4] Kill the Master NOW to test S3 .npy IDEMPOTENCY!")
+                    print("!"*50 + "\n")
+                    time.sleep(15)
+                # ==========================================================
+
     # Polls the SQS response queue until all workers complete their chunk evaluation
     def _wait_for_bulk_workers(self, job_id, num_workers, s3_inference_results, start_infer, historical_train_time, original_train_url):
         infer_resp_queue = self.aws.sqs_queues["infer_response"]
         print("\n [EVENT LOOP] Master listening actively for Worker inference responses...\n")
 
+        """
+        # ==========================================================
+        # TEST 2.5 (MASTER CRASH POST-FANOUT INFERENCE)
+        # ==========================================================
+        print("\n" + "!"*50)
+        print(" [TEST 2.5] ALL INFERENCE TASKS SENT. WAITING FOR ACKS.")
+        print(" [TEST 2.5] You have 15 seconds to kill the Master!")
+        print("!"*50 + "\n")
+        time.sleep(15)
+        # ==========================================================
+        """
+        
         while len(s3_inference_results) < num_workers:
             res_infer = self.aws.sqs_client.receive_message(QueueUrl=infer_resp_queue, MaxNumberOfMessages=10,
                                                             WaitTimeSeconds=2)

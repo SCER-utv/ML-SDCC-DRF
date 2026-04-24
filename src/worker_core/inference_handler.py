@@ -28,13 +28,6 @@ class InferenceHandler:
         test_uri = task_data.get('test_dataset_uri', 'N/A (Real-time inference)')
         print(f" [INFER] Source dataset: {test_uri}")
 
-        """                                                                               
-        # ==========================================================                      
-        # TEST 2.1 (WORKER HARD CRASH DURING INFERENCE)                                   
-        # ==========================================================                      
-        print(f" [TEST PHASE 2] Starting inference for {task_id}. 15-second pause...")    
-        time.sleep(15)                                                                    
-        """
 
         """                                                                               
         # ==========================================================                      
@@ -82,9 +75,11 @@ class InferenceHandler:
             # ==========================================================       
             # If this is task 1, simulate a Python error                       
             if task_data['task_id'] == "task_infer_rt_1":                      
+                print("\n" + "!"*50)
                 print(" [TEST 3.2] Simulating Python exception...")            
+                print("!"*50 + "\n")
                 raise ValueError("SIMULATED SOFT CRASH: Corrupted tuple data!")
-            # ==========================================================       
+            # ==========================================================    
             """
 
             print(f" [INFER] Single tuple real-time prediction in progress...")
@@ -99,6 +94,31 @@ class InferenceHandler:
         print(f" [INFER] Bulk inference started (Chunksize: {self.chunk_size})")
         start_time = time.time()
         all_predictions = []
+
+        """
+        # ==========================================================
+        # TEST 2.1 (WORKER HARD CRASH DURING BULK INFERENCE)
+        # ==========================================================
+        print("\n" + "!"*50)
+        print(f" [TEST 2.1] PREPARING TO PREDICT BULK TASK {task_id}")
+        print(" [TEST 2.1] You have 15 seconds to KILL THIS WORKER!")
+        print(" [TEST 2.1] Heartbeat active. If killed, SQS reassigns it.")
+        print("!"*50 + "\n")
+        time.sleep(15)
+        # ==========================================================
+        """
+
+        """
+        # ==========================================================
+        # TEST 2.2 (WORKER SOFT CRASH DURING BULK INFERENCE)
+        # ==========================================================
+        if task_id == "task_1":
+            print("\n" + "!"*50)
+            print(" [TEST 2.2] SIMULATING OUT-OF-MEMORY / PYTHON EXCEPTION")
+            print("!"*50 + "\n")
+            raise MemoryError("Simulated Soft Crash: RAM Exhausted during Bulk Inference!")
+        # ==========================================================
+        """
 
         # Process predictions chunk by chunk and aggressively free RAM
         for chunk in pd.read_csv(task_data['test_dataset_uri'], chunksize=self.chunk_size, low_memory=False):
@@ -127,3 +147,4 @@ class InferenceHandler:
                 os.remove(local_npy_path)
 
         return {"tipo": "bulk", "valore": f"s3://{bucket}/{s3_key}"}
+

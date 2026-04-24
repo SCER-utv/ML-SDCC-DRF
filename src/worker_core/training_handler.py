@@ -39,6 +39,32 @@ class TrainingHandler:
 
         # The ModelFactory now acts as our single source of truth for handling different ML tasks
         ml_handler = ModelFactory.get_model(task_type=task_type, target_column=target_col)
+
+        """
+        # ==========================================================
+        # TEST 1.1 (HARD CRASH WORKER)
+        # ==========================================================
+        print("\n" + "!"*50)
+        print(f" [TEST 1.1] PREPARING TO TRAIN TASK {task_data['task_id']}")
+        print(" [TEST 1.1] You have 15 seconds to KILL THIS WORKER!")
+        print(" [TEST 1.1] SQS Heartbeat is running. If killed, it drops.")
+        print("!"*50 + "\n")
+        time.sleep(15)
+        # ==========================================================
+         """
+
+        """
+        # ==========================================================
+        # TEST 1.2 (SOFT CRASH WORKER)
+        # ==========================================================
+        if task_data['task_id'] == "task_1":
+            print("\n" + "!"*50)
+            print(" [TEST 1.2] SIMULATING OUT-OF-MEMORY / PYTHON EXCEPTION")
+            print("!"*50 + "\n")
+            raise MemoryError("Simulated Soft Crash: RAM Exhausted!")
+        # ==========================================================
+        """
+
         rf = ml_handler.process_and_train(df, task_data)
 
         print(f" [Job: {job_id} | Task: {task_id}] Training completed in {time.time() - start_time:.2f}s")

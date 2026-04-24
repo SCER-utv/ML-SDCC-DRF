@@ -28,6 +28,19 @@ class TrainingPipeline:
         calculated_train_rows = None
         if not tasks_dispatched:
             calculated_train_rows = self._ensure_dataset_ready(train_url)
+        
+        """
+        # ==========================================================
+        # TEST 1.3 (MASTER CRASH PRE-FANOUT)
+        # ==========================================================
+        print("\n" + "!"*50)
+        print(" [TEST 1.3] DATA READY, ABOUT TO SEND TASKS TO SQS.")
+        print(" [TEST 1.3] You have 15 seconds to kill the Master!")
+        print(" [TEST 1.3] DynamoDB 'tasks_dispatched' is still FALSE.")
+        print("!"*50 + "\n")
+        time.sleep(15)
+        # ==========================================================
+        """
 
         # 4. Fan-out task generation
         if not tasks_dispatched:
@@ -38,12 +51,39 @@ class TrainingPipeline:
         else:
             print(" [RECOVERY] SQS Fan-Out skipped to prevent duplicates.")
 
+        """
+        # ==========================================================
+        # TEST 4.1 (MASTER NETWORK PARTITION SIMULATION)
+        # ==========================================================
+        print("\n" + "!"*50)
+        print(" [TEST 4.1] NETWORK PARTITION: THE MASTER IS ISOLATED!")
+        print(" [TEST 4.1] The Master is going offline for 45 seconds (Sleep).")
+        print(" [TEST 4.1] Workers will continue to finish tasks and fill the SQS queues.")
+        print("!"*50 + "\n")
+        time.sleep(45)
+        # Upon "waking up", the Master will find the ACKs ready and empty the queue in bulk.
+        # ==========================================================
+        """
+
         # 5. Wait for worker results via SQS polling
         self._wait_for_workers(job_id, num_workers, completed_train_tasks, start_train, tasks_dispatched, final_train_url)
 
         # 6. Closure and client notification
         total_run_time = time.time() - start_train
         print(f" [TIMERS] Distributed Training completed in {total_run_time:.2f}s")
+
+        """
+        # ==========================================================
+        # TEST 1.6 (MASTER CRASH BEFORE FINAL ACK TO CLIENT)
+        # ==========================================================
+        print("\n" + "!"*50)
+        print(" [TEST 1.6] TRAINING 100% COMPLETE. STATE SAVED.")
+        print(" [TEST 1.6] You have 15 seconds to kill the Master!")
+        print(" [TEST 1.6] Master hasn't responded to the Client yet.")
+        print("!"*50 + "\n")
+        time.sleep(15)
+        # ==========================================================
+        """
 
         if job_data.get('mode') == 'train':
             self._send_client_response(job_id, "train", total_run_time)
@@ -154,20 +194,6 @@ class TrainingPipeline:
         trees_remainder = num_trees_total % num_workers
         current_skip = 0
 
-        """
-        # ==========================================================
-        # TEST 1.3 (CRASH BEFORE SENDING train_tasks)
-        # ==========================================================
-        print("\n" + "!"*50)
-        print(" [TEST 1.3] VULNERABILITY WINDOW OPEN")
-        print(" [TEST 1.3] You have 15 seconds to kill the Master!")
-        print(" [TEST 1.3] Run: sudo docker restart master-node")
-        print("!"*50 + "\n")
-
-        time.sleep(15)
-        # ==========================================================
-        """
-
         print(f" [INFO] Distributing {num_trees_total} trees across {num_workers} training tasks...")
         for i in range(num_workers):
             trees = trees_per_worker + (1 if i < trees_remainder else 0)
@@ -216,12 +242,12 @@ class TrainingPipeline:
 
             """
             # ==========================================================
-            # TEST 1.5 (CRASH MID FAN-OUT)
+            # TEST 1.4 (MASTER CRASH MID-FANOUT)
             # ==========================================================
-            if i == (num_workers // 2) - 1:  # Pauses exactly halfway through the workers
+            if i == num_workers // 2:
                 print("\n" + "!"*50)
-                print(f" [TEST 1.5] FAN-OUT INTERRUPTED HALFWAY! Sent {i+1} out of {num_workers} tasks.")
-                print(" [TEST 1.5] You have 15 seconds to kill the Master before it finishes sending")
+                print(f" [TEST 1.4] HALFWAY THROUGH DISPATCH ({i+1}/{num_workers} tasks sent).")
+                print(" [TEST 1.4] Kill the Master NOW to create duplicates!")
                 print("!"*50 + "\n")
                 time.sleep(15)
             # ==========================================================
@@ -231,6 +257,19 @@ class TrainingPipeline:
     def _wait_for_workers(self, job_id, num_workers, completed_train_tasks, start_train, tasks_dispatched, train_url):
         print("\n [EVENT LOOP] Master listening actively for Worker responses...\n")
         train_resp_queue = self.aws.sqs_queues["train_response"]
+
+        """
+        # ==========================================================
+        # TEST 1.5 (MASTER CRASH POST-FANOUT)
+        # ==========================================================
+        print("\n" + "!"*50)
+        print(" [TEST 1.5] ALL TASKS SENT. TASKS_DISPATCHED = TRUE.")
+        print(" [TEST 1.5] You have 15 seconds to kill the Master!")
+        print(" [TEST 1.5] Workers are training. Master is just waiting.")
+        print("!"*50 + "\n")
+        time.sleep(15)
+        # ==========================================================
+        """
 
         while len(completed_train_tasks) < num_workers:
             res_train = self.aws.sqs_client.receive_message(QueueUrl=train_resp_queue, MaxNumberOfMessages=10,

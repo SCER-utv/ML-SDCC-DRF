@@ -34,6 +34,20 @@ def handle_task(aws, msg, in_queue, out_queue, handler_process_func, task_type):
 
         # Send completion ACK back to the Master node
         aws.sqs_client.send_message(QueueUrl=out_queue, MessageBody=json.dumps(response))
+
+        """
+        # ==========================================================
+        # TEST 4.2 (ZOMBIE WORKER / SQS TOKEN EXPIRATION)
+        # ==========================================================
+        if body.get('task_id') == "task_2":
+            print("\n" + "!"*50)
+            print(" [TEST 4.2] ZOMBIE SIMULATION: NETWORK PARTITION")
+            print(" [TEST 4.2] The Worker's SQS token has expired. Corrupting the Receipt Handle.")
+            print("!"*50 + "\n")
+            receipt = "invalid_receipt_handle_zombie_simulation_12345"
+        # ==========================================================
+        """
+
         aws.delete_message(in_queue, receipt)
         print(f" [{task_type.upper()}] {body['task_id']} completed successfully!\n")
 
