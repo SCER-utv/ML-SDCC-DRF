@@ -138,7 +138,11 @@ class AWSManager:
         if not s3_url or not isinstance(s3_url, str):
             return "unknown_dataset"
         filename = s3_url.split('/')[-1]
-        return filename.replace('.csv', '')
+
+        base_name = filename.replace('.csv', '')
+        clean_name = base_name.replace(' ', '-').replace('_train', '').replace('-train', '')
+
+        return clean_name
 
     # Saves the final evaluation metrics as a standalone CSV file on S3
     def save_metrics(self, report_data, dataset_name):
