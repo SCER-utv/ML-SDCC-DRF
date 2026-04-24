@@ -1,0 +1,220 @@
+TRAINING
+
+src/worker_core/training_handler.py, metodo process(self, task_data)
+# ==========================================================
+# TEST 1.1 (HARD CRASH WORKER)
+# ==========================================================
+print("\n" + "!"*50)
+print(f" [TEST 1.1] PREPARING TO TRAIN TASK {task_data['task_id']}")
+print(" [TEST 1.1] You have 15 seconds to KILL THIS WORKER!")
+print(" [TEST 1.1] SQS Heartbeat is running. If killed, it drops.")
+print("!"*50 + "\n")
+time.sleep(15)
+# ==========================================================
+
+src/worker_core/training_handler.py, metodo process(self, task_data)
+# ==========================================================
+# TEST 1.2 (SOFT CRASH WORKER)
+# ==========================================================
+if task_data['task_id'] == "task_1":
+        print("\n" + "!"*50)
+        print(" [TEST 1.2] SIMULATING OUT-OF-MEMORY / PYTHON EXCEPTION")
+        print("!"*50 + "\n")
+        raise MemoryError("Simulated Soft Crash: RAM Exhausted!")
+# ==========================================================
+
+src/master_core/training_pipeline.py, metodo run(self, job_data, job_id)
+# ==========================================================
+# TEST 1.3 (MASTER CRASH PRE-FANOUT)
+# ==========================================================
+print("\n" + "!"*50)
+print(" [TEST 1.3] DATA READY, ABOUT TO SEND TASKS TO SQS.")
+print(" [TEST 1.3] You have 15 seconds to kill the Master!")
+print(" [TEST 1.3] DynamoDB 'tasks_dispatched' is still FALSE.")
+print("!"*50 + "\n")
+time.sleep(15)
+# ==========================================================
+
+src/master_core/training_pipeline.py, metodo dispatch__tasks
+# ==========================================================
+# TEST 1.4 (MASTER CRASH MID-FANOUT)
+# ==========================================================
+if i == num_workers // 2:
+print("\n" + "!"*50)
+print(f" [TEST 1.4] HALFWAY THROUGH DISPATCH ({i+1}/{num_workers} tasks sent).")
+print(" [TEST 1.4] Kill the Master NOW to create duplicates!")
+print("!"*50 + "\n")
+time.sleep(15)
+# ==========================================================
+
+src/master_core/training_pipeline.py,
+# ==========================================================
+# TEST 1.5 (MASTER CRASH POST-FANOUT)
+# ==========================================================
+print("\n" + "!"*50)
+print(" [TEST 1.5] ALL TASKS SENT. TASKS_DISPATCHED = TRUE.")
+print(" [TEST 1.5] You have 15 seconds to kill the Master!")
+print(" [TEST 1.5] Workers are training. Master is just waiting.")
+print("!"*50 + "\n")
+time.sleep(15)
+# ==========================================================
+
+src/master_core/training_pipeline.py, metodo _wait_for_training_workers
+# ==========================================================
+# TEST 1.6 (MASTER CRASH BEFORE FINAL ACK TO CLIENT)
+# ==========================================================
+print("\n" + "!"*50)
+print(" [TEST 1.6] TRAINING 100% COMPLETE. STATE SAVED.")
+print(" [TEST 1.6] You have 15 seconds to kill the Master!")
+print(" [TEST 1.6] Master hasn't responded to the Client yet.")
+print("!"*50 + "\n")
+time.sleep(15)
+# ==========================================================
+
+src/master_core/training_pipeline.py, metodo run(self, job_data, job_id)
+
+INFERENZA BULK
+src/worker_core/inference_handler.py, metodo process(self, task_data)
+# ==========================================================
+# TEST 2.1 (WORKER HARD CRASH DURING BULK INFERENCE)
+# ==========================================================
+print("\n" + "!"*50)
+print(f" [TEST 2.1] PREPARING TO PREDICT BULK TASK {task_id}")
+print(" [TEST 2.1] You have 15 seconds to KILL THIS WORKER!")
+print(" [TEST 2.1] Heartbeat active. If killed, SQS reassigns it.")
+print("!"*50 + "\n")
+time.sleep(15)
+# ==========================================================
+
+src/worker_core/inference_handler.py, metodo process(self, task_data)
+# ==========================================================
+# TEST 2.2 (WORKER SOFT CRASH DURING BULK INFERENCE)
+# ==========================================================
+if task_id == "task_1":
+        print("\n" + "!"*50)
+        print(" [TEST 2.2] SIMULATING OUT-OF-MEMORY / PYTHON EXCEPTION")
+        print("!"*50 + "\n")
+        raise MemoryError("Simulated Soft Crash: RAM Exhausted during Bulk Inference!")
+# ==========================================================
+
+src/master_core/inference_pipeline.py, metodo run_bulk(self, job_data, job_id)
+# ==========================================================
+# TEST 2.3 (MASTER CRASH PRE-FANOUT INFERENCE)
+# ==========================================================
+print("\n" + "!"*50)
+print(" [TEST 2.3] ABOUT TO DISPATCH BULK INFERENCE TASKS.")
+print(" [TEST 2.3] You have 15 seconds to kill the Master!")
+print(" [TEST 2.3] DynamoDB state is recovered, SQS is empty.")
+print("!"*50 + "\n")
+time.sleep(15)
+# ==========================================================
+
+src/master_core/inference_pipeline.py, _dispatch_bulk_tasks(self, job_id, test_url, model_s3_uris, s3_inference_results)
+# ==========================================================
+# TEST 2.4 (MASTER CRASH MID-FANOUT INFERENCE)
+# ==========================================================
+if i == len(model_s3_uris) // 2:
+        print("\n" + "!"*50)
+        print(f" [TEST 2.4] MID-FANOUT: {i+1} / {len(model_s3_uris)} TASKS SENT.")
+        print(" [TEST 2.4] Kill the Master NOW to test S3 .npy IDEMPOTENCY!")
+        print("!"*50 + "\n")
+        time.sleep(15)
+# ==========================================================
+
+src/master_core/inference_pipeline.py, metodo _wait_for_bulk_workers(...)
+# ==========================================================
+# TEST 2.5 (MASTER CRASH POST-FANOUT INFERENCE)
+# ==========================================================
+print("\n" + "!"*50)
+print(" [TEST 2.5] ALL INFERENCE TASKS SENT. WAITING FOR ACKS.")
+print(" [TEST 2.5] You have 15 seconds to kill the Master!")
+print("!"*50 + "\n")
+time.sleep(15)
+# ==========================================================
+
+src/master_core/inference_pipeline.py, metodo run_bulk(...)
+# ==========================================================
+# TEST 2.6 (MASTER CRASH BEFORE FINAL AGGREGATION)
+# ==========================================================
+print("\n" + "!"*50)
+print(" [TEST 2.6] ALL ACKS RECEIVED. WORKERS ARE IDLE.")
+print(" [TEST 2.6] You have 15 seconds to kill the Master!")
+print(" [TEST 2.6] Upon restart, it should JUMP DIRECTLY to Evaluation!")
+print("!"*50 + "\n")
+time.sleep(15)
+# ==========================================================
+
+src/worker_core/inference_handler.py, metodo process()
+# ==========================================================       
+# TEST 3.1 (WORKER HARD CRASH IN SINGLE INFERENCE)                 
+# ==========================================================       
+print("\n" + "!"*50)                                               
+print(" [TEST 3.1] REAL-TIME INFERENCE STARTED!")                  
+print(" [TEST 3.1] You have 15 seconds to kill THIS Worker")       
+print("!"*50 + "\n")                                               
+time.sleep(15)                                                     
+# ==========================================================
+
+src/worker_core/inference_handler.py, metodo process()
+# ==========================================================       
+# TEST 3.2 (WORKER SOFT CRASH IN SINGLE INFERENCE)                 
+# ==========================================================       
+# If this is task 1, simulate a Python error                       
+if task_data['task_id'] == "task_infer_rt_1":                      
+print("\n" + "!"*50)
+print(" [TEST 3.2] Simulating Python exception...")            
+print("!"*50 + "\n")
+raise ValueError("SIMULATED SOFT CRASH: Corrupted tuple data!")
+# ==========================================================
+
+src/master_core/inference_pipeline.py, metodo run_realtime()
+# ==========================================================
+# TEST 3.3 (MASTER CRASH IN INFERENCE REAL-TIME)
+# ==========================================================
+print("\n" + "!"*50)
+print(" [TEST 3.3] TASKS SENT TO WORKERS. WAITING FOR RESPONSES...")
+print(" [TEST 3.3] You have 15 seconds to restart the Master!")
+print("!"*50 + "\n")
+time.sleep(15)
+# ==========================================================
+
+src/master_core/inference_pipeline.py, metodo run_realtime()
+# ==========================================================
+# TEST 3.4 (MASTER CRASH DURING REAL-TIME AGGREGATION)
+# ==========================================================
+print("\n" + "!"*50)
+print(" [TEST 3.4] ALL VOTES GATHERED IN RAM. READY TO AGGREGATE.")
+print(" [TEST 3.4] You have 15 seconds to kill the Master!")
+print(" [TEST 3.4] RAM will be wiped. Master MUST restart from scratch.")
+print("!"*50 + "\n")
+time.sleep(15)
+# ==========================================================
+
+src/master_core/training_pipeline.py (e/o inference_pipeline.py)
+# ==========================================================
+# TEST 4.1 (MASTER NETWORK PARTITION SIMULATION)
+# ==========================================================
+Questo test simula il momento in cui il Master "perde la connessione" a Internet mentre i Worker stanno lavorando.
+print("\n" + "!"*50)
+print(" [TEST 4.1] NETWORK PARTITION: THE MASTER IS ISOLATED!")
+print(" [TEST 4.1] The Master is going offline for 45 seconds (Sleep).")
+print(" [TEST 4.1] Workers will continue to finish tasks and fill the SQS queues.")
+print("!"*50 + "\n")
+time.sleep(45)
+# Upon "waking up", the Master will find the ACKs ready and empty the queue in bulk.
+# ==========================================================
+
+src/worker.py, handle_task()
+Questo test simula un Worker che porta a termine il task, ma ci mette troppo tempo (o perde la rete), 
+facendo scadere il suo token di visibilità su SQS. Quando cercherà di notificare di aver finito, SQS lo rifiuterà.
+# ==========================================================
+# TEST 4.2 (WORKER ZOMBIE / SCADENZA TOKEN SQS)
+# ==========================================================
+if body.get('task_id') == "task_2":
+        print("\n" + "!"*50)
+        print(" [TEST 4.2] SIMULAZIONE ZOMBIE: PARTIZIONE DI RETE")
+        print(" [TEST 4.2] Il token di SQS del Worker è scaduto. Corrompiamo il Receipt Handle.")
+        print("!"*50 + "\n")
+        receipt = "invalid_receipt_handle_simulazione_zombie_12345"
+# ==========================================================
+
