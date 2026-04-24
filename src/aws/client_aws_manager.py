@@ -207,7 +207,18 @@ class ClientAWSManager:
                                 print("=" * 60)
                                 print(f" Metrics saved to S3. Check the results file.")
 
-                            print(f" Cluster Latency : {body.get('total_time_sec')} seconds")
+                            if "metrics" in body:
+                                print("\n --- EVALUATION RESULTS ---")
+                                for metric_name, value in body["metrics"].items():
+                                    display_name = metric_name.replace('_', ' ').title()
+                                    if isinstance(value, float):
+                                        print(f"  {display_name:<20}: {value:.4f}")
+                                    else:
+                                        print(f"  {display_name:<20}: {value}")
+                                print(" --------------------------")
+                                print(" Metrics successfully logged to S3.")
+
+                            print(f"\n Cluster Latency : {body.get('total_time_sec')} seconds")
                             print("=" * 60 + "\n")
 
                             self.sqs_client.delete_message(QueueUrl=self.client_resp_queue, ReceiptHandle=receipt)

@@ -67,7 +67,6 @@ class EvaluationManager:
 
         report_data = {
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "job_id": job_id,
             "target_model": target_model,
             "train_url": original_train_url,
             "test_url": test_s3_uri,
@@ -83,6 +82,8 @@ class EvaluationManager:
         self.aws.save_metrics(report_data, dataset_name)
 
         self.aws.cleanup_s3_inference_files(s3_inference_results)
+
+        return report_data
 
     # Downloads and loads temporary .npy files containing worker predictions
     def _download_worker_results(self, s3_inference_results):

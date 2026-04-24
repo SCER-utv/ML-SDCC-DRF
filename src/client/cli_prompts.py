@@ -235,11 +235,13 @@ class CLI:
             print(" [ERROR] Invalid choice.")
 
         if sel_method == '1':
+            valid_models = aws_manager.list_available_models()
             while True:
                 target_model = input("\n Paste the exact Model ID (e.g., job_...): ").strip()
-                if target_model.startswith("job_") or target_model.startswith("rf_"):
+                if target_model not in valid_models:
+                    print(f" [ERROR] Model '{target_model}' not found in S3. Please check for typos.")
+                else:
                     return target_model
-                print(" [ERROR] Invalid ID format. It should start with 'job_'")
         else:
             print("\n [SEARCH] Scanning S3 for saved models...")
             # We assume list_available_models now returns all model names dynamically

@@ -41,13 +41,13 @@ class InferencePipeline:
         num_trees, weights, strat = self._calculate_inference_weights(target_model, num_workers)
 
         # We pass the flattened data to the evaluator
-        self.evaluator.aggregate_and_evaluate(
+        final_metrics = self.evaluator.aggregate_and_evaluate(
             job_data, job_id, s3_inference_results, num_workers,
             num_trees, weights, historical_train_time, inference_time, strat
         )
 
         # 6. Notify the client
-        self._send_client_response(job_id, job_data.get('mode', 'bulk_infer'), time.time() - total_start_time)
+        self._send_client_response(job_id, job_data.get('mode', 'bulk_infer'), time.time() - total_start_time, metrics=final_metrics)
 
     # Processes a single data tuple for low-latency prediction
     def run_realtime(self, job_data, job_id):
@@ -218,7 +218,7 @@ class InferencePipeline:
         return final_prediction, task_str
 
     # Returns completion status and predictions to the client application via SQS
-    def _send_client_response(self, job_id, mode, total_time, prediction=None, task_str=None):
+    def _send_client_response(self, job_id, mode, total_time, prediction=None, task_str=None, metrics=None):
         client_response_queue = self.aws.sqs_queues["client_response"]
         if client_response_queue:
             payload = {
@@ -230,6 +230,9 @@ class InferencePipeline:
             if prediction is not None:
                 payload["prediction"] = prediction
                 payload["task_type"] = task_str
+
+            if metrics:
+                payload["metrics"] = metrics
 
             try:
                 self.aws.sqs_client.send_message(QueueUrl=client_response_queue, MessageBody=json.dumps(payload))
