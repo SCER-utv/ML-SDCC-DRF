@@ -27,15 +27,15 @@ class InferencePipeline:
         self.aws.scale_worker_infrastructure(num_workers)
 
         # 2. Fault tolerance state recovery
-        historical_train_time, s3_inference_results, start_infer = self._recover_bulk_state(job_id, target_model)
+        historical_train_time, s3_inference_results, start_infer, original_train_url = self._recover_bulk_state(job_id, target_model)
 
         # 3. Fan-out task generation
         self._dispatch_bulk_tasks(job_id, test_url, model_s3_uris, s3_inference_results)
-        self.aws.update_job_state(job_id, set(), s3_inference_results, start_infer, True, historical_train_time, 0.0)
+        self.aws.update_job_state(job_id, set(), s3_inference_results, start_infer, True, historical_train_time, 0.0, original_train_url)
 
         # 4. Wait for workers to process chunks
         inference_time = self._wait_for_bulk_workers(job_id, num_workers, s3_inference_results, start_infer,
-                                                     historical_train_time)
+                                                     historical_train_time, original_train_url)
 
         # 5. Delegate final evaluation and metric calculation
         num_trees, weights, strat = self._calculate_inference_weights(target_model, num_workers)
@@ -89,10 +89,10 @@ class InferencePipeline:
 
     # Retrieves previous training duration and current inference state from DynamoDB
     def _recover_bulk_state(self, job_id, target_model):
-        _, _, _, _, historical_train_time, _ = self.aws.get_job_state(target_model)
-        _, s3_inference_results, db_infer_start, _, _, _ = self.aws.get_job_state(job_id)
+        _, _, _, _, historical_train_time, _, original_train_url = self.aws.get_job_state(target_model)
+        _, s3_inference_results, db_infer_start, _, _, _, _ = self.aws.get_job_state(job_id)
         start_infer = db_infer_start if db_infer_start else time.time()
-        return historical_train_time, s3_inference_results, start_infer
+        return historical_train_time, s3_inference_results, start_infer, original_train_url
 
     # Queues inference payloads for each worker
     def _dispatch_bulk_tasks(self, job_id, test_url, model_s3_uris, s3_inference_results):
@@ -111,7 +111,7 @@ class InferencePipeline:
                 print(f" [INFER DISPATCH] Task {task_id} sent to inference queue.")
 
     # Polls the SQS response queue until all workers complete their chunk evaluation
-    def _wait_for_bulk_workers(self, job_id, num_workers, s3_inference_results, start_infer, historical_train_time):
+    def _wait_for_bulk_workers(self, job_id, num_workers, s3_inference_results, start_infer, historical_train_time, original_train_url):
         infer_resp_queue = self.aws.sqs_queues["infer_response"]
         print("\n [EVENT LOOP] Master listening actively for Worker inference responses...\n")
 
@@ -134,7 +134,7 @@ class InferencePipeline:
 
                         self.aws.update_job_state(
                             job_id, set(), s3_inference_results, start_infer,
-                            True, historical_train_time, time.time() - start_infer
+                            True, historical_train_time, time.time() - start_infer, original_train_url
                         )
 
                     self.aws.sqs_client.delete_message(QueueUrl=infer_resp_queue, ReceiptHandle=msg['ReceiptHandle'])

@@ -6,6 +6,7 @@ import random
 import boto3
 import botocore
 import pandas as pd
+from botocore.exceptions import ClientError
 
 
 # This class handles all AWS interactions from the Master node
@@ -132,33 +133,44 @@ class AWSManager:
 
         return chunks
 
+    @staticmethod
+    def extract_dataset_name(s3_url):
+        if not s3_url or not isinstance(s3_url, str):
+            return "unknown_dataset"
+        filename = s3_url.split('/')[-1]
+        return filename.replace('.csv', '')
+
     # Saves the final evaluation metrics as a standalone CSV file on S3
-    def save_metrics(self, job_id, target_model, train_s3_uri, test_s3_uri, num_workers, trees, strategy_name, train_time, infer_time, metrics_dict, metrics_key):
+    def save_metrics(self, report_data, dataset_name):
+
+        # dynamic file path generation
+        metrics_key = f"metrics/{dataset_name}_metrics.csv"
         print(f" [AWS] Saving final metrics to s3://{self.bucket}/{metrics_key}...")
 
-        # Build a flat dictionary with all the job parameters
-        report_data = {
-            "job_id": job_id,
-            "target_model": target_model,
-            "train_url": train_s3_uri,
-            "test_url": test_s3_uri,
-            "strategy": strategy_name,
-            "trees": trees,
-            "workers": num_workers,
-            "train_time_sec": round(train_time, 2),
-            "infer_time_sec": round(infer_time, 2)
-        }
+        new_row_df = pd.DataFrame([report_data])
 
-        # Merge the calculated ML metrics into the dictionary
-        report_data.update(metrics_dict)
-
-        # Convert to a Pandas DataFrame representing a single row
-        df = pd.DataFrame([report_data])
+        # Convert to a Pandas DataFrame representing the new single row
+        new_row_df = pd.DataFrame([report_data])
 
         try:
-            # Save to CSV in memory buffer
+            # Try to download the existing file to append the new row
+            response = self.s3_client.get_object(Bucket=self.bucket, Key=metrics_key)
+            existing_df = pd.read_csv(io.BytesIO(response['Body'].read()))
+            updated_df = pd.concat([existing_df, new_row_df], ignore_index=True)
+            print(" [AWS] Existing metrics file found. Appending new results.")
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'NoSuchKey':
+                # File does not exist, this is the first execution for this dataset
+                updated_df = new_row_df
+                print(" [AWS] New dataset detected. Creating new metrics file.")
+            else:
+                print(f" [CRITICAL ERROR] Error accessing S3 object: {e}")
+                return
+
+        try:
+            # Save the updated DataFrame to CSV in memory buffer
             csv_buffer = io.StringIO()
-            df.to_csv(csv_buffer, index=False)
+            updated_df.to_csv(csv_buffer, index=False)
 
             # Upload the buffer directly to S3
             self.s3_client.put_object(
@@ -241,17 +253,18 @@ class AWSManager:
                 tasks_dispatched = response['Item'].get('tasks_dispatched', False)
                 training_time = float(response['Item'].get('tempo_training', 0.0))
                 inference_time = float(response['Item'].get('tempo_inferenza', 0.0))
+                train_url = response['Item'].get('train_url', 'unknown_url')
 
                 return (set(response['Item'].get('completed_train', [])),
                         response['Item'].get('completed_infer', {}),
-                        start_time, tasks_dispatched, training_time, inference_time)
+                        start_time, tasks_dispatched, training_time, inference_time, train_url)
         except Exception:
             pass
-        return set(), {}, None, False, 0.0, 0.0
+        return set(), {}, None, False, 0.0, 0.0, "unknown_url"
 
     # Updates the progress state of a job in DynamoDB
     def update_job_state(self, job_id, completed_train_set, completed_infer_dict, start_time, tasks_dispatched,
-                         training_time=0.0, inference_time=0.0):
+                         training_time=0.0, inference_time=0.0, train_url="unknown_url"):
         table = self.dynamodb.Table(self.dynamodb_table)
         table.put_item(Item={
             'job_id': job_id,
@@ -260,7 +273,8 @@ class AWSManager:
             'start_time': str(start_time),
             'tasks_dispatched': tasks_dispatched,
             'tempo_training': str(training_time),
-            'tempo_inferenza': str(inference_time)
+            'tempo_inferenza': str(inference_time),
+            'train_url': train_url
         })
 
     # Deletes a processed message from an SQS queue

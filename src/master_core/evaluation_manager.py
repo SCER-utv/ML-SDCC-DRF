@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import pandas as pd
+import time
 from sklearn.metrics import roc_auc_score, accuracy_score, mean_squared_error, r2_score, mean_absolute_error, \
     precision_score, recall_score, f1_score
 
@@ -51,24 +52,35 @@ class EvaluationManager:
         print("=" * 50 + "\n")
 
         strategy_name = "Homogeneous" if strategy == "homogeneous" else "Heterogeneous"
-        metrics_key = f"metrics/{job_id}_results.csv"
-
         target_model = job_data.get('target_model', job_id)
+        mode = job_data.get('mode')
 
+        # dynamic retrieve of dataset name
+        if mode == 'train_and_infer':
+            # If in train and infer we get it from the payload
+            original_train_url = job_data.get('train_url')
+        else:
+            # In only bulk infer the payload does not contain the train url, so we get it from dynamodb
+            _, _, _, _, _, _, original_train_url = self.aws.get_job_state(target_model)
+
+        dataset_name = self.aws.extract_dataset_name(original_train_url)
+
+        report_data = {
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "job_id": job_id,
+            "target_model": target_model,
+            "train_url": original_train_url,
+            "test_url": test_s3_uri,
+            "strategy": strategy_name,
+            "trees": trees,
+            "workers": num_workers,
+            "train_time_sec": round(train_time, 2),
+            "infer_time_sec": round(infer_time, 2)
+        }
+
+        report_data.update(metrics_dict)
         # Saves the final metrics and cleans up temporary inference files
-        self.aws.save_metrics(
-            job_id=job_id,
-            target_model=target_model,
-            train_s3_uri=train_s3_uri,
-            test_s3_uri=test_s3_uri,
-            num_workers=num_workers,
-            trees=trees,
-            strategy_name=strategy_name,
-            train_time=train_time,
-            infer_time=infer_time,
-            metrics_dict=metrics_dict,
-            metrics_key=metrics_key
-        )
+        self.aws.save_metrics(report_data, dataset_name)
 
         self.aws.cleanup_s3_inference_files(s3_inference_results)
 

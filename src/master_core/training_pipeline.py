@@ -14,10 +14,11 @@ class TrainingPipeline:
     # Executes the training process across distributed workers
     def run(self, job_data, job_id):
         num_workers = job_data['num_workers']
+        train_url = job_data.get('train_url', '')
 
         # 1. Fault tolerance state recovery
-        completed_train_tasks, s3_inference_results, start_train, tasks_dispatched, training_time = self._recover_or_initialize_state(
-            job_id)
+        completed_train_tasks, s3_inference_results, start_train, tasks_dispatched, training_time, final_train_url = self._recover_or_initialize_state(
+            job_id, train_url)
 
         # 2. Infrastructure provisioning
         self.aws.scale_worker_infrastructure(num_workers)
@@ -26,19 +27,19 @@ class TrainingPipeline:
         # 3. Dataset validation and row counting
         calculated_train_rows = None
         if not tasks_dispatched:
-            calculated_train_rows = self._ensure_dataset_ready(job_data.get('train_url', ''))
+            calculated_train_rows = self._ensure_dataset_ready(train_url)
 
         # 4. Fan-out task generation
         if not tasks_dispatched:
             self._generate_tasks(job_data, job_id, calculated_train_rows)
             tasks_dispatched = True
             self.aws.update_job_state(job_id, completed_train_tasks, s3_inference_results, start_train,
-                                      tasks_dispatched, training_time, 0.0)
+                                      tasks_dispatched, training_time, 0.0, final_train_url)
         else:
             print(" [RECOVERY] SQS Fan-Out skipped to prevent duplicates.")
 
         # 5. Wait for worker results via SQS polling
-        self._wait_for_workers(job_id, num_workers, completed_train_tasks, start_train, tasks_dispatched)
+        self._wait_for_workers(job_id, num_workers, completed_train_tasks, start_train, tasks_dispatched, final_train_url)
 
         # 6. Closure and client notification
         total_run_time = time.time() - start_train
@@ -48,17 +49,17 @@ class TrainingPipeline:
             self._send_client_response(job_id, "train", total_run_time)
 
     # Recovers previous training state from DynamoDB or initializes a new one
-    def _recover_or_initialize_state(self, job_id):
-        completed_train_tasks, s3_results, db_start, tasks_dispatched, train_time, _ = self.aws.get_job_state(job_id)
+    def _recover_or_initialize_state(self, job_id, train_url):
+        completed_train_tasks, s3_results, db_start, tasks_dispatched, train_time, _, db_train_url= self.aws.get_job_state(job_id)
 
         if db_start is None:
             start_train = time.time()
-            self.aws.update_job_state(job_id, completed_train_tasks, s3_results, start_train, False, train_time, 0.0)
+            self.aws.update_job_state(job_id, completed_train_tasks, s3_results, start_train, False, train_time, 0.0, train_url)
         else:
             start_train = db_start
-            print(f" [RECOVERY] Restored. Current state: {len(completed_train_tasks)} Train tasks complete.")
+            print(f" [RECOVERY] Restored. Current state: {len(completed_train_tasks)} Train tasks complete. (Train URL: {train_url})")
 
-        return completed_train_tasks, s3_results, start_train, tasks_dispatched, train_time
+        return completed_train_tasks, s3_results, start_train, tasks_dispatched, train_time, train_url
 
     # Validates the existence of the training dataset on S3 and counts its total rows
     def _ensure_dataset_ready(self, train_url):
@@ -93,18 +94,36 @@ class TrainingPipeline:
             response = self.aws.s3_client.get_object(Bucket=bucket, Key=key)
             strategies_data = json.loads(response['Body'].read().decode('utf-8'))
 
+            def get_closest_key(data_dict, target_val):
+                valid_keys = [int(k) for k in data_dict.keys() if k.isdigit()]
+                if not valid_keys:
+                    return None
+                if target_val in valid_keys:
+                    return str(target_val)
+                # Find the closest key
+                closest = min(valid_keys, key=lambda k: abs(k - target_val))
+                return str(closest)
+
             if strategy_type == "homogeneous":
-                # Look for the specific tree count
-                conf = strategies_data.get("homogeneous", {}).get(str(num_trees))
-                if conf:
-                    print(f" [INFO] Loaded Homogeneous strategy from {strategies_url} for {num_trees} trees.")
+                matched_key = get_closest_key(strategies_data, num_trees)
+                if matched_key:
+                    conf = strategies_data[matched_key]
+                    if matched_key != str(num_trees):
+                        print(
+                            f" [INFO] Exact homogeneous config for {num_trees} trees not found. Falling back to closest match: {matched_key} trees.")
+                    else:
+                        print(f" [INFO] Loaded Homogeneous strategy from {strategies_url} for {num_trees} trees.")
                     return [conf] * num_workers
 
             elif strategy_type == "heterogeneous":
-                # Look for the specific worker count array
-                conf_list = strategies_data.get("heterogeneous", {}).get(str(num_workers))
-                if conf_list and len(conf_list) == num_workers:
-                    print(f" [INFO] Loaded Heterogeneous strategy from {strategies_url} for {num_workers} workers.")
+                matched_key = get_closest_key(strategies_data, num_workers)
+                if matched_key:
+                    conf_list = strategies_data[matched_key]
+                    if matched_key != str(num_workers):
+                        print(
+                            f" [INFO] Exact heterogeneous config for {num_workers} workers not found. Falling back to closest match: {matched_key} workers.")
+                    else:
+                        print(f" [INFO] Loaded Heterogeneous strategy from {strategies_url} for {num_workers} workers.")
                     return conf_list
 
         except Exception as e:
@@ -121,11 +140,11 @@ class TrainingPipeline:
         target_col = job_data.get('target_column', 'Label')
 
         target_strategies = job_data.get('custom_hyperparams')
+        strategy_type = job_data.get('strategy', 'homogeneous')
         strategies_url = job_data.get('strategies_url')
 
         # Fallback to user-provided S3 JSON configuration (or standard ML if it fails/is missing)
         if not target_strategies:
-            strategy_type = job_data.get('strategy', 'homogeneous')
             target_strategies = self._fetch_custom_strategies(strategies_url, strategy_type, num_trees_total,
                                                               num_workers, task_type)
 
@@ -139,6 +158,7 @@ class TrainingPipeline:
         for i in range(num_workers):
             trees = trees_per_worker + (1 if i < trees_remainder else 0)
             n_rows = rows_per_worker + (remainder_rows if i == num_workers - 1 else 0)
+            #circular buffer for lack of perfect configuration
             conf = target_strategies[i % len(target_strategies)]
 
             raw_depth = conf.get('max_depth')
@@ -181,7 +201,7 @@ class TrainingPipeline:
             print(f" Enqueued {task_payload['task_id']} ({trees} trees).")
 
     # Polls the SQS response queue until all workers complete their training tasks
-    def _wait_for_workers(self, job_id, num_workers, completed_train_tasks, start_train, tasks_dispatched):
+    def _wait_for_workers(self, job_id, num_workers, completed_train_tasks, start_train, tasks_dispatched, train_url):
         print("\n [EVENT LOOP] Master listening actively for Worker responses...\n")
         train_resp_queue = self.aws.sqs_queues["train_response"]
 
@@ -198,12 +218,12 @@ class TrainingPipeline:
                         print(
                             f" [ACK] Worker completed training for {task_id}! ({len(completed_train_tasks)}/{num_workers})")
                         self.aws.update_job_state(job_id, completed_train_tasks, {}, start_train, tasks_dispatched, 0.0,
-                                                  0.0)
+                                                  0.0, train_url)
 
                     self.aws.sqs_client.delete_message(QueueUrl=train_resp_queue, ReceiptHandle=msg['ReceiptHandle'])
 
         training_time = time.time() - start_train
-        self.aws.update_job_state(job_id, completed_train_tasks, {}, start_train, tasks_dispatched, training_time, 0.0)
+        self.aws.update_job_state(job_id, completed_train_tasks, {}, start_train, tasks_dispatched, training_time, 0.0, train_url)
         print("\n [PIPELINE] All Workers completed their Training tasks!")
 
     # Notifies the client that the training pipeline has finished

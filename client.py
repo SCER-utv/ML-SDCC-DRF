@@ -51,7 +51,8 @@ def main():
     if mode in ['train', 'train_and_infer']:
         w = cluster_config.get('workers', 0)
         t = cluster_config.get('trees', 0)
-        job_id = f"job_{t}trees_{w}workers_{timestamp}"
+        strat = cluster_config.get('strategy')
+        job_id = f"job_{strat}_{t}trees_{w}workers_{timestamp}"
     else:
         job_id = f"req_{timestamp}"
 
