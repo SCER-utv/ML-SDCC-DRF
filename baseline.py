@@ -18,7 +18,6 @@ from sklearn.metrics import (
 # ---------------------------------------------------------
 # 1. SETUP AND CREDENTIALS (ENVIRONMENT VARIABLES)
 # ---------------------------------------------------------
-
 # Retrieve AWS Region from environment variable (defaults to eu-central-1 if missing)
 AWS_REGION = os.getenv("AWS_REGION", "eu-central-1")
 
@@ -59,7 +58,6 @@ DATASETS_METADATA = {
 # ---------------------------------------------------------
 # 2. S3 UTILITY FUNCTIONS
 # ---------------------------------------------------------
-
 def load_json_config_from_s3(bucket, dataset_name):
     """
     Downloads the JSON file containing the optimal configurations for the specific dataset.
