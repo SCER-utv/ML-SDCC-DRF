@@ -19,6 +19,16 @@ class InferencePipeline:
         if not test_url:
             raise ValueError("Test URL is missing. Cannot perform bulk inference.")
 
+        try:
+            bucket, test_key = self.aws.parse_s3_uri(test_url)
+        except Exception:
+            raise ValueError(f"Invalid S3 URL format for test target: {test_url}")
+
+
+        if not self.aws.check_s3_file_exists(bucket, test_key):
+            raise ValueError(f"CRITICAL: The test file {test_url} DOES NOT exist on S3.")
+
+
         # 1. Check model chunks and provision instances
         model_s3_uris = self.aws.count_model_parts(self.aws.bucket, target_model)
         num_workers = len(model_s3_uris)
