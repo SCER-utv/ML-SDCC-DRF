@@ -46,6 +46,19 @@ class InferencePipeline:
         self._dispatch_bulk_tasks(job_id, test_url, model_s3_uris, s3_inference_results)
         self.aws.update_job_state(job_id, set(), s3_inference_results, start_infer, True, historical_train_time, 0.0, original_train_url)
 
+        """
+        # ==========================================================
+        # TEST 4.1b (MASTER NETWORK PARTITION - BULK INFERENCE)
+        # ==========================================================
+        print("\n" + "!"*50)
+        print(" [TEST 4.1b] NETWORK PARTITION: THE MASTER IS ISOLATED!")
+        print(" [TEST 4.1b] The Master is going offline for 45 seconds (Sleep).")
+        print(" [TEST 4.1b] Workers will continue evaluating chunks and filling SQS.")
+        print("!"*50 + "\n")
+        time.sleep(45)
+        # ==========================================================
+        """
+
         # 4. Wait for workers to process chunks
         inference_time = self._wait_for_bulk_workers(job_id, num_workers, s3_inference_results, start_infer,
                                                      historical_train_time, original_train_url)
@@ -94,6 +107,19 @@ class InferencePipeline:
         # 2. Dispatch the tuple to all workers
         inference_pure_start = time.time()
         self._dispatch_realtime_tasks(job_id, model_s3_uris, tuple_data)
+
+        """
+        # ==========================================================
+        # TEST 4.1c (MASTER NETWORK PARTITION - REAL-TIME INFERENCE)
+        # ==========================================================
+        print("\n" + "!"*50)
+        print(" [TEST 4.1c] NETWORK PARTITION: THE MASTER IS ISOLATED!")
+        print(" [TEST 4.1c] The Master goes offline for 15 seconds (Sleep).")
+        print(" [TEST 4.1c] SQS acts as a buffer for the fast Real-Time replies.")
+        print("!"*50 + "\n")
+        time.sleep(15) 
+        # ==========================================================
+        """
 
         """
         # ==========================================================
@@ -160,7 +186,8 @@ class InferencePipeline:
                 }
                 self.aws.sqs_client.send_message(QueueUrl=infer_queue, MessageBody=json.dumps(infer_task))
                 print(f" [INFER DISPATCH] Task {task_id} sent to inference queue.")
-
+                
+                """
                 # ==========================================================
                 # TEST 2.4 (MASTER CRASH MID-FANOUT INFERENCE)
                 # ==========================================================
@@ -171,6 +198,7 @@ class InferencePipeline:
                     print("!"*50 + "\n")
                     time.sleep(15)
                 # ==========================================================
+                """
 
     # Polls the SQS response queue until all workers complete their chunk evaluation
     def _wait_for_bulk_workers(self, job_id, num_workers, s3_inference_results, start_infer, historical_train_time, original_train_url):
@@ -179,16 +207,16 @@ class InferencePipeline:
 
         """
         # ==========================================================
-        # TEST 2.5 (MASTER CRASH POST-FANOUT INFERENCE)
+        # TEST 2.5a (MASTER CRASH POST-FANOUT INFERENCE)
         # ==========================================================
         print("\n" + "!"*50)
-        print(" [TEST 2.5] ALL INFERENCE TASKS SENT. WAITING FOR ACKS.")
-        print(" [TEST 2.5] You have 15 seconds to kill the Master!")
+        print(" [TEST 2.5a] ALL INFERENCE TASKS SENT. WAITING FOR ACKS.")
+        print(" [TEST 2.5a] You have 15 seconds to kill the Master!")
         print("!"*50 + "\n")
         time.sleep(15)
         # ==========================================================
         """
-        
+    
         while len(s3_inference_results) < num_workers:
             res_infer = self.aws.sqs_client.receive_message(QueueUrl=infer_resp_queue, MaxNumberOfMessages=10,
                                                             WaitTimeSeconds=2)
@@ -210,6 +238,20 @@ class InferencePipeline:
                             job_id, set(), s3_inference_results, start_infer,
                             True, historical_train_time, time.time() - start_infer, original_train_url
                         )
+
+                        """
+                        # ==========================================================
+                        # TEST 2.5b (MASTER CRASH MID-ACK RECEPTION INFERENCE)
+                        # ==========================================================
+                        if len(s3_inference_results) == num_workers // 2:
+                            print("\n" + "!"*50)
+                            print(f" [TEST 2.5b] RECEIVED HALF ACKs ({len(s3_inference_results)}/{num_workers}).")
+                            print(" [TEST 2.5b] State saved to DynamoDB. Kill the Master NOW!")
+                            print(" [TEST 2.5b] Upon restart, it should ONLY wait for the remaining ones.")
+                            print("!"*50 + "\n")
+                            time.sleep(15)
+                        # ==========================================================
+                        """
 
                     self.aws.sqs_client.delete_message(QueueUrl=infer_resp_queue, ReceiptHandle=msg['ReceiptHandle'])
 

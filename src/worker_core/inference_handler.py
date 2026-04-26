@@ -29,15 +29,6 @@ class InferenceHandler:
         print(f" [INFER] Source dataset: {test_uri}")
 
 
-        """                                                                               
-        # ==========================================================                      
-        # TEST 2.2 (WORKER SOFT CRASH DURING INFERENCE)                                   
-        # ==========================================================                      
-        # if task_id == "task_2":                                                         
-        #     raise MemoryError("SOFT CRASH SIMULATION DURING INFERENCE - OUT OF MEMORY") 
-        # ==========================================================                      
-        """
-
         # Download the assigned partial model from S3 into temporary storage
         local_model_path = f"/tmp/model_{job_id}_{task_id}.joblib"
         try:
@@ -57,7 +48,7 @@ class InferenceHandler:
         # CASE A: Real-time inference for a single data tuple
         if 'tuple_data' in task_data:
 
-            """                                                                
+            """                                        
             # ==========================================================       
             # TEST 3.1 (WORKER HARD CRASH IN SINGLE INFERENCE)                 
             # ==========================================================       
@@ -67,18 +58,22 @@ class InferenceHandler:
             print("!"*50 + "\n")                                               
             time.sleep(15)                                                     
             # ==========================================================       
-            """
+            """   
 
-            """                                                                
-            # ==========================================================       
+            """                                                             
+            # ==========================================================   
             # TEST 3.2 (WORKER SOFT CRASH IN SINGLE INFERENCE)                 
             # ==========================================================       
-            # If this is task 1, simulate a Python error                       
-            if task_data['task_id'] == "task_infer_rt_1":                      
-                print("\n" + "!"*50)
-                print(" [TEST 3.2] Simulating Python exception...")            
-                print("!"*50 + "\n")
-                raise ValueError("SIMULATED SOFT CRASH: Corrupted tuple data!")
+            # If this is task 1, simulate a Python error only once                      
+            if task_data['task_id'] == "task_infer_rt_1" and not getattr(self, '_simulated_crash_done', False):                      
+                    self._simulated_crash_done = True 
+                    
+                    print("\n" + "!"*50, flush=True)
+                    print(" [TEST 3.2] SIMULATING PYTHON EXCEPTION")
+                    print(" [TEST 3.2] This Worker will crash and release the message to SQS (NACK).")
+                    print(" [TEST 3.2] On the next attempt, the real-time task will succeed!")            
+                    print("!"*50 + "\n")
+                    raise ValueError("SIMULATED SOFT CRASH: Corrupted tuple data!")
             # ==========================================================    
             """
 
@@ -112,13 +107,18 @@ class InferenceHandler:
         # ==========================================================
         # TEST 2.2 (WORKER SOFT CRASH DURING BULK INFERENCE)
         # ==========================================================
-        if task_id == "task_1":
-            print("\n" + "!"*50)
-            print(" [TEST 2.2] SIMULATING OUT-OF-MEMORY / PYTHON EXCEPTION")
-            print("!"*50 + "\n")
-            raise MemoryError("Simulated Soft Crash: RAM Exhausted during Bulk Inference!")
+        if task_id == "task_1" and not getattr(self, '_simulated_crash_done', False):
+                self._simulated_crash_done = True 
+                
+                print("\n" + "!"*50, flush=True)
+                print(" [TEST 2.2] SIMULATING OUT-OF-MEMORY / PYTHON EXCEPTION")
+                print(" [TEST 2.2] This Worker will crash and release the message to SQS (NACK).")
+                print(" [TEST 2.2] On the next attempt (by this or another worker), the task will succeed!")
+                print("!"*50 + "\n")
+                raise MemoryError("Simulated Soft Crash: RAM Exhausted during Bulk Inference!")
         # ==========================================================
         """
+        
 
         # Process predictions chunk by chunk and aggressively free RAM
         for chunk in pd.read_csv(task_data['test_dataset_uri'], chunksize=self.chunk_size, low_memory=False):
