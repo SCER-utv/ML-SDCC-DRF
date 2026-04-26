@@ -51,19 +51,26 @@ class TrainingHandler:
         print("!"*50 + "\n")
         time.sleep(15)
         # ==========================================================
-         """
+        """
 
         """
         # ==========================================================
-        # TEST 1.2 (SOFT CRASH WORKER)
+        # TEST 1.2 (WORKER SOFT CRASH - TRANSIENT SIMULATION)
         # ==========================================================
-        if task_data['task_id'] == "task_1":
-            print("\n" + "!"*50)
-            print(" [TEST 1.2] SIMULATING OUT-OF-MEMORY / PYTHON EXCEPTION")
-            print("!"*50 + "\n")
-            raise MemoryError("Simulated Soft Crash: RAM Exhausted!")
+        # Check if it's task_1 AND if this worker hasn't simulated the crash yet
+        if task_data['task_id'] == "task_1" and not getattr(self, '_simulated_crash_done', False):
+                # Set the flag to True: the next time it picks up this task, it won't crash!
+                self._simulated_crash_done = True 
+                
+                print("\n" + "!"*50, flush=True))
+                print(" [TEST 1.2] SIMULATING OUT-OF-MEMORY / PYTHON EXCEPTION")
+                print(" [TEST 1.2] This Worker will crash and release the message to SQS (NACK).")
+                print(" [TEST 1.2] On the next attempt (by this or another worker), the task will succeed!")
+                print("!"*50 + "\n")
+                raise MemoryError("Simulated Soft Crash: RAM Exhausted!")
         # ==========================================================
         """
+        
 
         rf = ml_handler.process_and_train(df, task_data)
 

@@ -1,6 +1,6 @@
 TRAINING
 
-src/worker_core/training_handler.py, metodo process(self, task_data)
+src/worker_core/training_handler.py, metodo process(self, task_data) ✔
 # ==========================================================
 # TEST 1.1 (HARD CRASH WORKER)
 # ==========================================================
@@ -12,19 +12,26 @@ print("!"*50 + "\n")
 time.sleep(15)
 # ==========================================================
 
-src/worker_core/training_handler.py, metodo process(self, task_data)
+src/worker_core/training_handler.py, metodo process(self, task_data) ✗
+Il messaggio viene sempre ripreso dallo stesso worker che è crashato, e continua a crashare!
 # ==========================================================
-# TEST 1.2 (SOFT CRASH WORKER)
+# TEST 1.2 (WORKER SOFT CRASH - TRANSIENT SIMULATION)
 # ==========================================================
-if task_data['task_id'] == "task_1":
-        print("\n" + "!"*50)
+# Check if it's task_1 AND if this worker hasn't simulated the crash yet
+if task_data['task_id'] == "task_1" and not getattr(self, '_simulated_crash_done', False):
+        # Set the flag to True: the next time it picks up this task, it won't crash!
+        self._simulated_crash_done = True 
+        
+        print("\n" + "!"*50, flush=True)
         print(" [TEST 1.2] SIMULATING OUT-OF-MEMORY / PYTHON EXCEPTION")
+        print(" [TEST 1.2] This Worker will crash and release the message to SQS (NACK).")
+        print(" [TEST 1.2] On the next attempt (by this or another worker), the task will succeed!")
         print("!"*50 + "\n")
         raise MemoryError("Simulated Soft Crash: RAM Exhausted!")
 # ==========================================================
 
-src/master_core/training_pipeline.py, metodo run(self, job_data, job_id)
-# ==========================================================
+src/master_core/training_pipeline.py, metodo run(self, job_data, job_id) ✔
+# ========================================================== 
 # TEST 1.3 (MASTER CRASH PRE-FANOUT)
 # ==========================================================
 print("\n" + "!"*50)
@@ -35,8 +42,8 @@ print("!"*50 + "\n")
 time.sleep(15)
 # ==========================================================
 
-src/master_core/training_pipeline.py, metodo dispatch__tasks
-# ==========================================================
+src/master_core/training_pipeline.py, metodo dispatch__tasks ✔
+# ========================================================== 
 # TEST 1.4 (MASTER CRASH MID-FANOUT)
 # ==========================================================
 if i == num_workers // 2:
@@ -47,9 +54,12 @@ print("!"*50 + "\n")
 time.sleep(15)
 # ==========================================================
 
-src/master_core/training_pipeline.py,
-# ==========================================================
-# TEST 1.5 (MASTER CRASH POST-FANOUT)
+src/master_core/training_pipeline.py, metodo _wait_for_workers ✔
+Il test è stato effettuato nel momento in cui il Master non ha ricevuto neanche un ACK, dunque al suo riavvio segna che i task di Training 
+non sono stati effettuati ([RECOVERY] Restored. Current state: 0 Train tasks complete.). Tuttavia, guardando poi la coda train-response-queue, si rende conto della 
+presenza degli ACK e non riesegue il Fan-Out dei messaggi.
+# ========================================================== 
+# TEST 1.5a (MASTER CRASH POST-FANOUT)
 # ==========================================================
 print("\n" + "!"*50)
 print(" [TEST 1.5] ALL TASKS SENT. TASKS_DISPATCHED = TRUE.")
@@ -59,7 +69,26 @@ print("!"*50 + "\n")
 time.sleep(15)
 # ==========================================================
 
-src/master_core/training_pipeline.py, metodo _wait_for_training_workers
+src/master_core/training_pipeline.py, metodo _wait_for_workers  ✔
+Il test è stato effettuato nel momento in cui il Master ha ricevuto 2 messaggi di ACK, dunque al suo riavvio segna che i task di Training 
+sono stati effettuati ([RECOVERY] Restored. Current state: 2 Train tasks complete.). Guardando poi la coda train-response-queue, si rende conto della 
+presenza degli ACK degli altri 2 task, non riesegue il Fan-Out dei messaggi e procede con la terminazione del job finale.
+# ==========================================================
+# TEST 1.5b (MASTER CRASH POST FANOUT MID-ACK RECEPTION)
+# ==========================================================
+if len(completed_train_tasks) == num_workers // 2:
+print("\n" + "!"*50)
+print(f" [TEST 1.5b] RECEIVED HALF ACKs ({len(completed_train_tasks)}/{num_workers}).")
+print(" [TEST 1.5b] State saved to DynamoDB. Kill the Master NOW!")
+print(" [TEST 1.5b] Upon restart, it should ONLY wait for the remaining ones.")
+print("!"*50 + "\n")
+time.sleep(15)
+# ==========================================================
+
+src/master_core/training_pipeline.py, metodo _wait_for_training_workers ✔
+Il test è stato effettuato nel momento in cui il Master ha ricevuto tutti i messaggi di ACK, dunque al suo riavvio segna che i task di Training 
+sono stati effettuati ([RECOVERY] Restored. Current state: 4 Train tasks complete.). Ha dunque ricevuto l'interezza delle informazioni necessarie, 
+e dunque può concludere il job
 # ==========================================================
 # TEST 1.6 (MASTER CRASH BEFORE FINAL ACK TO CLIENT)
 # ==========================================================
@@ -71,10 +100,11 @@ print("!"*50 + "\n")
 time.sleep(15)
 # ==========================================================
 
-src/master_core/training_pipeline.py, metodo run(self, job_data, job_id)
+
 
 INFERENZA BULK
-src/worker_core/inference_handler.py, metodo process(self, task_data)
+
+src/worker_core/inference_handler.py, metodo process(self, task_data) ✔
 # ==========================================================
 # TEST 2.1 (WORKER HARD CRASH DURING BULK INFERENCE)
 # ==========================================================
@@ -87,17 +117,22 @@ time.sleep(15)
 # ==========================================================
 
 src/worker_core/inference_handler.py, metodo process(self, task_data)
+Il messaggio viene sempre ripreso dallo stesso worker che è crashato, e continua a crashare! ✔
 # ==========================================================
 # TEST 2.2 (WORKER SOFT CRASH DURING BULK INFERENCE)
 # ==========================================================
-if task_id == "task_1":
-        print("\n" + "!"*50)
+if task_id == "task_1" and not getattr(self, '_simulated_crash_done', False):
+        self._simulated_crash_done = True 
+        
+        print("\n" + "!"*50, flush=True)
         print(" [TEST 2.2] SIMULATING OUT-OF-MEMORY / PYTHON EXCEPTION")
+        print(" [TEST 2.2] This Worker will crash and release the message to SQS (NACK).")
+        print(" [TEST 2.2] On the next attempt (by this or another worker), the task will succeed!")
         print("!"*50 + "\n")
         raise MemoryError("Simulated Soft Crash: RAM Exhausted during Bulk Inference!")
 # ==========================================================
 
-src/master_core/inference_pipeline.py, metodo run_bulk(self, job_data, job_id)
+src/master_core/inference_pipeline.py, metodo run_bulk(self, job_data, job_id) ✔
 # ==========================================================
 # TEST 2.3 (MASTER CRASH PRE-FANOUT INFERENCE)
 # ==========================================================
@@ -109,7 +144,7 @@ print("!"*50 + "\n")
 time.sleep(15)
 # ==========================================================
 
-src/master_core/inference_pipeline.py, _dispatch_bulk_tasks(self, job_id, test_url, model_s3_uris, s3_inference_results)
+src/master_core/inference_pipeline.py, _dispatch_bulk_tasks(self, job_id, test_url, model_s3_uris, s3_inference_results) ✔
 # ==========================================================
 # TEST 2.4 (MASTER CRASH MID-FANOUT INFERENCE)
 # ==========================================================
@@ -121,9 +156,11 @@ if i == len(model_s3_uris) // 2:
         time.sleep(15)
 # ==========================================================
 
-src/master_core/inference_pipeline.py, metodo _wait_for_bulk_workers(...)
+src/master_core/inference_pipeline.py, metodo _wait_for_bulk_workers(...) ✗
+Il test è stato effettuato nel momento in cui il Master non ha ricevuto neanche un ACK, dunque al suo riavvio segna che i task di Inferenza Bulk 
+non sono stati effettuati. Tuttavia, guardando poi la coda infer-response-queue, si dovrebbe rendere conto della presenza degli ACK e non rieseguire il Fan-Out dei messaggi.
 # ==========================================================
-# TEST 2.5 (MASTER CRASH POST-FANOUT INFERENCE)
+# TEST 2.5a (MASTER CRASH POST-FANOUT INFERENCE)
 # ==========================================================
 print("\n" + "!"*50)
 print(" [TEST 2.5] ALL INFERENCE TASKS SENT. WAITING FOR ACKS.")
@@ -132,7 +169,57 @@ print("!"*50 + "\n")
 time.sleep(15)
 # ==========================================================
 
-src/master_core/inference_pipeline.py, metodo run_bulk(...)
+src/master_core/inference_pipeline.py, metodo _wait_for_bulk_workers(...) ✗
+Il test è stato effettuato nel momento in cui il Master non ha ricevuto 2 ack, tuttavia al suo riavvio non segna quanti task di Inferenza Bulk sono stati effettuati.
+Tuttavia, guardando poi la coda infer-response-queue, si rende conto della presenza degli ACK e riesegue solo il Fan-Out dei messaggi di cui non ha ricevuto l'ACK.
+Mi è inoltre uscito il seguente terminale:  
+
+(==================================================
+ STARTING PIPELINE: req_1777135412 (Mode: bulk_infer)
+==================================================
+ [BULK-INFER] Target model 'job_homogeneous_50trees_4workers_1777128566' chunked into 4 parts. Scaling workers...
+ [ASG] Setting desired capacity to 4 workers...
+ [ASG] Waiting for instances to start for tagging...
+ [ASG] Found 4 instances. Applying name tags...
+ [ASG] Name tags applied successfully.
+ [INFER DISPATCH] Task task_1 sent to inference queue.
+ [INFER DISPATCH] Task task_4 sent to inference queue.
+
+ [EVENT LOOP] Master listening actively for Worker inference responses...
+
+ [ACK] Worker completed Bulk Inference for task_1! (3/4)
+ [ACK] Worker completed Bulk Inference for task_4! (4/4)
+ [RESOLVER] Model: HOMOGENEOUS | Total trees: 50 | Weights: [13, 13, 12, 12]
+
+==================================================
+ FINAL AGGREGATION & EVALUATION PHASE
+==================================================
+ Downloading 4 inference result files from S3...
+ [WARNING] Failed to download or load s3://drf-bucket-scer-utv/results/req_1777134111/task_2.npy: An error occurred (404) when calling the HeadObject operation: Not Found
+ [WARNING] Failed to download or load s3://drf-bucket-scer-utv/results/req_1777134111/task_3.npy: An error occurred (404) when calling the HeadObject operation: Not Found
+
+GLOBAL DISTRIBUTED RESULTS:
+ ROC-AUC: 0.6320
+ Accuracy: 0.6491
+ Precision: 0.2751
+ Recall: 0.4985
+ F1-Score: 0.3546
+==================================================
+
+# ==========================================================
+# TEST 2.5b (MASTER CRASH POST FANOUT MID-ACK RECEPTION)
+# ==========================================================
+if len(s3_inference_results) == num_workers // 2:
+        print("\n" + "!"*50)
+        print(f" [TEST 2.5b] RECEIVED HALF ACKs ({len(s3_inference_results)}/{num_workers}).")
+        print(" [TEST 2.5b] State saved to DynamoDB. Kill the Master NOW!")
+        print(" [TEST 2.5b] Upon restart, it should ONLY wait for the remaining ones.")
+        print("!"*50 + "\n")
+        time.sleep(15)
+# ==========================================================)
+
+
+src/master_core/inference_pipeline.py, metodo run_bulk(...) ✔
 # ==========================================================
 # TEST 2.6 (MASTER CRASH BEFORE FINAL AGGREGATION)
 # ==========================================================
@@ -144,7 +231,13 @@ print("!"*50 + "\n")
 time.sleep(15)
 # ==========================================================
 
-src/worker_core/inference_handler.py, metodo process()
+
+DOBBIAMO INSERIRE DEI TEST PER TRAINING + INFERENZA BULK?
+
+
+
+INFERENZA SINGOLA
+src/worker_core/inference_handler.py, metodo process() ✔
 # ==========================================================       
 # TEST 3.1 (WORKER HARD CRASH IN SINGLE INFERENCE)                 
 # ==========================================================       
@@ -155,19 +248,23 @@ print("!"*50 + "\n")
 time.sleep(15)                                                     
 # ==========================================================
 
-src/worker_core/inference_handler.py, metodo process()
-# ==========================================================       
+src/worker_core/inference_handler.py, metodo process() ✔
+# ==========================================================   
 # TEST 3.2 (WORKER SOFT CRASH IN SINGLE INFERENCE)                 
 # ==========================================================       
-# If this is task 1, simulate a Python error                       
-if task_data['task_id'] == "task_infer_rt_1":                      
-print("\n" + "!"*50)
-print(" [TEST 3.2] Simulating Python exception...")            
-print("!"*50 + "\n")
-raise ValueError("SIMULATED SOFT CRASH: Corrupted tuple data!")
+# If this is task 1, simulate a Python error only once                      
+if task_data['task_id'] == "task_infer_rt_1" and not getattr(self, '_simulated_crash_done', False):                      
+        self._simulated_crash_done = True 
+        
+        print("\n" + "!"*50, flush=True)
+        print(" [TEST 3.2] SIMULATING PYTHON EXCEPTION")
+        print(" [TEST 3.2] This Worker will crash and release the message to SQS (NACK).")
+        print(" [TEST 3.2] On the next attempt, the real-time task will succeed!")            
+        print("!"*50 + "\n")
+        raise ValueError("SIMULATED SOFT CRASH: Corrupted tuple data!")
 # ==========================================================
 
-src/master_core/inference_pipeline.py, metodo run_realtime()
+src/master_core/inference_pipeline.py, metodo run_realtime() ✔
 # ==========================================================
 # TEST 3.3 (MASTER CRASH IN INFERENCE REAL-TIME)
 # ==========================================================
@@ -178,8 +275,8 @@ print("!"*50 + "\n")
 time.sleep(15)
 # ==========================================================
 
-src/master_core/inference_pipeline.py, metodo run_realtime()
-# ==========================================================
+src/master_core/inference_pipeline.py, metodo run_realtime() ✔
+# ==========================================================  
 # TEST 3.4 (MASTER CRASH DURING REAL-TIME AGGREGATION)
 # ==========================================================
 print("\n" + "!"*50)
@@ -190,23 +287,55 @@ print("!"*50 + "\n")
 time.sleep(15)
 # ==========================================================
 
-src/master_core/training_pipeline.py (e/o inference_pipeline.py)
+
+src/master_core/training_pipeline.py, metodo run ✔
+L'hai inserito subito dopo _generate_tasks e prima di _wait_for_workers. Questa è una scelta architetturalmente perfetta.
+In quel momento, il Master ha appena finito di spedire i messaggi su SQS. Mettendo uno sleep(45) lì, simuli un Master che perde improvvisamente la rete 
+("sparisce" da Internet). Nel frattempo, i Worker (che sono su macchine separate) finiscono il lavoro e mettono i loro ACK nella coda di risposta.
+Quando lo sleep finisce (il Master recupera la rete e "si risveglia"), entra nel _wait_for_workers e trova la coda di risposta già piena. Svuota gli 
+ACK tutti in una volta e chiude il job. Hai appena dimostrato alla commissione che se il Master cade, l'infrastruttura non si ferma e i dati non si perdono.
 # ==========================================================
-# TEST 4.1 (MASTER NETWORK PARTITION SIMULATION)
+# TEST 4.1a (MASTER NETWORK PARTITION - TRAINING)
 # ==========================================================
-Questo test simula il momento in cui il Master "perde la connessione" a Internet mentre i Worker stanno lavorando.
 print("\n" + "!"*50)
-print(" [TEST 4.1] NETWORK PARTITION: THE MASTER IS ISOLATED!")
-print(" [TEST 4.1] The Master is going offline for 45 seconds (Sleep).")
-print(" [TEST 4.1] Workers will continue to finish tasks and fill the SQS queues.")
+print(" [TEST 4.1a] NETWORK PARTITION: THE MASTER IS ISOLATED!")
+print(" [TEST 4.1a] The Master is going offline for 45 seconds (Sleep).")
+print(" [TEST 4.1a] Workers will continue to finish tasks and fill the SQS queues.")
 print("!"*50 + "\n")
 time.sleep(45)
 # Upon "waking up", the Master will find the ACKs ready and empty the queue in bulk.
 # ==========================================================
 
+src/master_core/inference_pipeline.py, metodo run_bulk
+# ==========================================================
+# TEST 4.1b (MASTER NETWORK PARTITION - BULK INFERENCE)
+# ==========================================================
+print("\n" + "!"*50)
+print(" [TEST 4.1b] NETWORK PARTITION: THE MASTER IS ISOLATED!")
+print(" [TEST 4.1b] The Master is going offline for 45 seconds (Sleep).")
+print(" [TEST 4.1b] Workers will continue evaluating chunks and filling SQS.")
+print("!"*50 + "\n")
+time.sleep(45)
+# ==========================================================
+
+src/master_core/inference_pipeline.py, metodo run_realtime
+# ==========================================================
+# TEST 4.1c (MASTER NETWORK PARTITION - REAL-TIME INFERENCE)
+# ==========================================================
+print("\n" + "!"*50)
+print(" [TEST 4.1c] NETWORK PARTITION: THE MASTER IS ISOLATED!")
+print(" [TEST 4.1c] The Master goes offline for 15 seconds (Sleep).")
+print(" [TEST 4.1c] SQS acts as a buffer for the fast Real-Time replies.")
+print("!"*50 + "\n")
+time.sleep(15) 
+# ==========================================================
+
+
 src/worker.py, handle_task()
-Questo test simula un Worker che porta a termine il task, ma ci mette troppo tempo (o perde la rete), 
-facendo scadere il suo token di visibilità su SQS. Quando cercherà di notificare di aver finito, SQS lo rifiuterà.
+Il test 4.2 dimostra la tenuta del sistema al fenomeno del Worker Zombie. Come visibile dai log, 
+un nodo che tenta di comunicare la fine di un task con un token SQS scaduto viene respinto dall'API di AWS (ReceiptHandleIsInvalid). 
+La nostra architettura intercetta l'eccezione a cascata: fallisce la cancellazione, fallisce il rilascio d'emergenza, ma il thread principale 
+assorbe l'errore e riporta il nodo in stato di idle senza degradare il container Docker, garantendo la pulizia dello stato globale.
 # ==========================================================
 # TEST 4.2 (WORKER ZOMBIE / SCADENZA TOKEN SQS)
 # ==========================================================
@@ -218,3 +347,44 @@ if body.get('task_id') == "task_2":
         receipt = "invalid_receipt_handle_simulazione_zombie_12345"
 # ==========================================================
 
+
+Commenti riguardanti 4.1 e 4.2
+SALVO: Però c'è una cosa che non mi convince. Per quanto riguarda la partizione di rete, nel caso del master non abbiamo inserito questo controllo all'interno della classe master.py invece per il worker si? Non abbiamo la possibilità di fare ciò anche per la classe master? Oppure abbiamo sbagliato per la classe worker?
+
+G: Questa è una domanda eccellente, perché dimostra che stai analizzando il codice in modo critico e simmetrico. Ti rassicuro subito: non hai sbagliato nulla per la classe Worker, e c'è un motivo architettonico preciso per questa differenza.
+
+Il motivo per cui abbiamo gestito la partizione di rete in due modi apparentemente "diversi" (alterando un token nel Worker e usando un semplice time.sleep nel Master) risiede in come Amazon SQS gestisce i Timeout di Visibilità (Visibility Timeout).
+
+Ecco la spiegazione tecnica che ti toglierà ogni dubbio (e che farà un'ottima impressione in sede di tesi).
+
+1. Il Worker: Perché abbiamo dovuto alterare il codice (Il problema del Token Scaduto)
+Quando il Worker preleva un task da SQS, SQS non cancella il messaggio, ma lo "nasconde" agli altri Worker per un certo tempo (es. 5 minuti). Se il Worker subisce una partizione di rete e ci mette troppo tempo, SQS rende di nuovo visibile il messaggio e lo dà a un altro nodo.
+Quando il Worker originario torna online (diventando uno Zombie) e tenta di comunicare ad AWS di aver finito, AWS gli lancia attivamente un'eccezione (ReceiptHandleIsInvalid), perché il suo "scontrino" è scaduto.
+
+Per simulare questo comportamento in fase di test senza dover letteralmente staccare il cavo di rete del tuo computer, abbiamo dovuto alterare artificialmente il token nel codice del Worker (Test 4.2). Era l'unico modo per innescare quell'eccezione specifica e dimostrare che il tuo blocco try-except sa gestirla rimettendo il Worker in idle senza farlo crashare.
+
+2. Il Master: Perché basta un time.sleep (L'attesa passiva)
+Il Master, durante l'attesa dei risultati (fase di polling), non possiede alcun token di visibilità in sospeso nei confronti dei Worker. Lui si limita a bussare alla porta di SQS ogni 2 secondi chiedendo: "Ci sono nuovi ACK?".
+
+Se il Master subisce una partizione di rete (cade la sua connessione Internet), semplicemente smette di bussare.
+
+AWS non si arrabbia.
+
+I Worker non vanno in blocco, continuano a lavorare e mettono i loro messaggi nella coda di risposta.
+
+I messaggi si accumulano pacificamente su SQS.
+
+Quando la connessione torna, il Master ricomincia a bussare. AWS non gli lancia nessuna eccezione, si limita a consegnargli tutti i messaggi accumulati. Ecco perché per il Master non c'è bisogno di simulare eccezioni strane o alterare token: un semplice time.sleep(45) simula alla perfezione e in modo matematicamente identico una vera partizione di rete!
+
+Ma la classe master.py è protetta dalle cadute di rete vere?
+La tua osservazione nasconde un dubbio lecito: "Ma se la rete cade MENTRE il master sta facendo una richiesta boto3 ad AWS, il programma in Python non crasha?"
+
+La risposta è sì, la libreria di AWS (boto3) lancerebbe un'eccezione di rete (es. EndpointConnectionError o ConnectTimeoutError). Ma la tua architettura è già protetta!
+Se guardi il ciclo vitale del Master, avrai sicuramente un blocco try-except globale o la capacità di far fallire il Job con un errore se AWS è irraggiungibile. Inoltre, essendo il Master Stateless nella fase Real-Time, se dovesse spegnersi brutalmente per un errore di rete, il messaggio del client rimarrebbe intatto sulla coda FIFO iniziale, e al riavvio ripartirebbe da zero.
+
+Conclusione
+Nel Worker abbiamo inserito un trucco nel codice perché dovevamo simulare la reazione punitiva di AWS a un ritardo.
+
+Nel Master non serve alterare i token, perché AWS non lo punisce se sparisce per un po'; gli conserva semplicemente i messaggi.
+
+È una bellissima asimmetria che dimostra l'eleganza del paradigma Event-Driven disaccoppiato tramite code!

@@ -56,9 +56,7 @@ GOLD_STANDARD_PARAMS = {
     }
 }
 
-
 s3_client = boto3.client('s3', region_name=AWS_REGION)
-
 
 # appends calculated baseline metrics to a historical csv file on s3 preserving excel formatting
 def save_baseline_metrics(dataset, n_trees, train_time, inf_time, metrics_dict, config):

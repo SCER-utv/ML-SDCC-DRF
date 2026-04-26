@@ -53,12 +53,12 @@ class TrainingPipeline:
 
         """
         # ==========================================================
-        # TEST 4.1 (MASTER NETWORK PARTITION SIMULATION)
+        # TEST 4.1a (MASTER NETWORK PARTITION - TRAINING)
         # ==========================================================
         print("\n" + "!"*50)
-        print(" [TEST 4.1] NETWORK PARTITION: THE MASTER IS ISOLATED!")
-        print(" [TEST 4.1] The Master is going offline for 45 seconds (Sleep).")
-        print(" [TEST 4.1] Workers will continue to finish tasks and fill the SQS queues.")
+        print(" [TEST 4.1a] NETWORK PARTITION: THE MASTER IS ISOLATED!")
+        print(" [TEST 4.1a] The Master is going offline for 45 seconds (Sleep).")
+        print(" [TEST 4.1a] Workers will continue to finish tasks and fill the SQS queues.")
         print("!"*50 + "\n")
         time.sleep(45)
         # Upon "waking up", the Master will find the ACKs ready and empty the queue in bulk.
@@ -260,7 +260,7 @@ class TrainingPipeline:
 
         """
         # ==========================================================
-        # TEST 1.5 (MASTER CRASH POST-FANOUT)
+        # TEST 1.5a (MASTER CRASH POST-FANOUT)
         # ==========================================================
         print("\n" + "!"*50)
         print(" [TEST 1.5] ALL TASKS SENT. TASKS_DISPATCHED = TRUE.")
@@ -287,6 +287,21 @@ class TrainingPipeline:
                                                   0.0, train_url)
 
                     self.aws.sqs_client.delete_message(QueueUrl=train_resp_queue, ReceiptHandle=msg['ReceiptHandle'])
+
+                    """
+                    # ==========================================================
+                    # TEST 1.5b (MASTER CRASH POST FANOUT MID-ACK RECEPTION)
+                    # ==========================================================
+                    if len(completed_train_tasks) == num_workers // 2:
+                        print("\n" + "!"*50)
+                        print(f" [TEST 1.5b] RECEIVED HALF ACKs ({len(completed_train_tasks)}/{num_workers}).")
+                        print(" [TEST 1.5b] State saved to DynamoDB. Kill the Master NOW!")
+                        print(" [TEST 1.5b] Upon restart, it should ONLY wait for the remaining ones.")
+                        print("!"*50 + "\n")
+                        time.sleep(15)
+                    # ==========================================================
+                    """
+                    
 
         training_time = time.time() - start_train
         self.aws.update_job_state(job_id, completed_train_tasks, {}, start_train, tasks_dispatched, training_time, 0.0, train_url)
