@@ -36,7 +36,7 @@ s3_client = boto3.client('s3', region_name=AWS_REGION)
 
 # Define target datasets and tree grid
 TARGET_DATASETS = ["taxi", "synthetic"]
-TREES_GRID = [25, 50, 75, 100, 150, 200]
+TREES_GRID = [25, 50, 75, 100]
 
 # HARDCODED DATASET METADATA
 # Modify S3 paths if your files are located in different folders
