@@ -164,69 +164,149 @@ class CLI:
             config_data['custom_hyperparams'] = []
             iterations = 1 if config_data['strategy'] == "homogeneous" else config_data['workers']
 
+            is_classification = "classification" in dataset_info.get('task_type', '').lower()
+
             for w in range(iterations):
                 if config_data['strategy'] == "heterogeneous":
                     print(f"\n --- Configuring Worker {w + 1}/{config_data['workers']} ---")
                 else:
                     print("\n --- Configuring Global Parameters ---")
 
-                raw_depth = input(" Max Depth (int, or blank for None): ").strip()
-                max_depth = int(raw_depth) if raw_depth.isdigit() else None
+                # 1. Max Depth
+                while True:
+                    raw_depth = input(" Max Depth [int >= 1, or blank for None]: ").strip()
+                    if not raw_depth or raw_depth.lower() == "none":
+                        max_depth = None
+                        break
+                    if raw_depth.isdigit() and int(raw_depth) >= 1:
+                        max_depth = int(raw_depth)
+                        break
+                    print(" [ERROR] Max Depth must be a positive integer (>= 1) or left blank.")
 
-                raw_split = input(" Min Samples Split (int or float, default: 2): ").strip()
-                try:
-                    min_samples_split = float(raw_split) if '.' in raw_split else int(raw_split)
-                except ValueError:
-                    min_samples_split = 2
-
-                raw_leaf = input(" Min Samples Leaf (int or float, default: 1): ").strip()
-                try:
-                    min_samples_leaf = float(raw_leaf) if '.' in raw_leaf else int(raw_leaf)
-                except ValueError:
-                    min_samples_leaf = 1
-
-                raw_features = input(
-                    " Max Features ['sqrt', 'log2', float < 1.0, or blank for None] (Default: sqrt): ").strip()
-                if not raw_features or raw_features == "sqrt":
-                    max_features = "sqrt"
-                elif raw_features == "log2":
-                    max_features = "log2"
-                elif raw_features.lower() == "none":
-                    max_features = None
-                else:
+                # 2. Min Samples Split
+                while True:
+                    raw_split = input(" Min Samples Split [int >= 2, or float (0.0-1.0], default: 2]: ").strip()
+                    if not raw_split:
+                        min_samples_split = 2
+                        break
                     try:
-                        max_features = float(raw_features)
+                        val = float(raw_split)
+                        if '.' in raw_split and 0.0 < val <= 1.0:  # It's a percentage (float)
+                            min_samples_split = val
+                            break
+                        elif val.is_integer() and int(val) >= 2:  # It's an integer number of samples
+                            min_samples_split = int(val)
+                            break
+                        else:
+                            print(" [ERROR] Must be an integer >= 2, or a float between 0.0 and 1.0.")
                     except ValueError:
+                        print(" [ERROR] Invalid number format.")
+
+                # 3. Min Samples Leaf
+                while True:
+                    raw_leaf = input(" Min Samples Leaf [int >= 1, or float (0.0-1.0), default: 1]: ").strip()
+                    if not raw_leaf:
+                        min_samples_leaf = 1
+                        break
+                    try:
+                        val = float(raw_leaf)
+                        if '.' in raw_leaf and 0.0 < val < 1.0:  # Percentage (float)
+                            min_samples_leaf = val
+                            break
+                        elif val.is_integer() and int(val) >= 1:  # Integer
+                            min_samples_leaf = int(val)
+                            break
+                        else:
+                            print(" [ERROR] Must be an integer >= 1, or a float between 0.0 and 1.0.")
+                    except ValueError:
+                        print(" [ERROR] Invalid number format.")
+
+                # 4. Max Features
+                while True:
+                    raw_features = input(
+                        " Max Features ['sqrt', 'log2', float <= 1.0, blank for None. Default: sqrt]: ").strip().lower()
+                    if not raw_features or raw_features == "sqrt":
                         max_features = "sqrt"
-
-                raw_samples = input(" Max Samples per Tree [0.1 - 1.0, or blank for None] (Default: 1.0): ").strip()
-                if raw_samples.lower() == "none":
-                    max_samples = None
-                else:
+                        break
+                    if raw_features == "log2":
+                        max_features = "log2"
+                        break
+                    if raw_features == "none":
+                        max_features = None
+                        break
                     try:
-                        max_samples = float(raw_samples)
+                        val = float(raw_features)
+                        if 0.0 < val <= 1.0:
+                            max_features = val
+                            break
+                        else:
+                            print(" [ERROR] Float must be strictly > 0.0 and <= 1.0")
                     except ValueError:
-                        max_samples = 1.0
+                        print(" [ERROR] Invalid input. Use 'sqrt', 'log2', 'None', or a valid float.")
 
-                criterion = input(" Criterion [gini, entropy, squared_error] (Leave blank for default): ").strip()
-                if not criterion:
-                    criterion = "gini" if "classification" in dataset_info.get('task_type',
-                                                                               '').lower() else "squared_error"
+                # 5. Max Samples (for bootstrap)
+                while True:
+                    raw_samples = input(
+                        " Max Samples per Tree [float (0.0-1.0], blank for None. Default: None]: ").strip().lower()
+                    if not raw_samples or raw_samples == "none":
+                        max_samples = None
+                        break
+                    try:
+                        val = float(raw_samples)
+                        if 0.0 < val <= 1.0:
+                            max_samples = val
+                            break
+                        else:
+                            print(" [ERROR] Float must be strictly > 0.0 and <= 1.0")
+                    except ValueError:
+                        print(" [ERROR] Invalid number format.")
 
+                # 6. Criterion (depends on the ML task type)
+                valid_criteria = ['gini', 'entropy', 'log_loss'] if is_classification else ['squared_error',
+                                                                                            'absolute_error',
+                                                                                            'friedman_mse',
+                                                                                            'poisson']
+                default_criterion = 'gini' if is_classification else 'squared_error'
+
+                while True:
+                    raw_criterion = input(
+                        f" Criterion {valid_criteria} [Default: {default_criterion}]: ").strip().lower()
+                    if not raw_criterion:
+                        criterion = default_criterion
+                        break
+                    if raw_criterion in valid_criteria:
+                        criterion = raw_criterion
+                        break
+                    print(f" [ERROR] Invalid criterion. You must choose from: {valid_criteria}")
+
+                # 7. Class Weight (Classification only)
                 class_weight = None
-                if "classification" in dataset_info.get('task_type', '').lower():
-                    raw_cw = input(" Class Weight [balanced, balanced_subsample] (Leave blank for None): ").strip()
-                    if raw_cw in ["balanced", "balanced_subsample"]:
-                        class_weight = raw_cw
+                if is_classification:
+                    while True:
+                        raw_cw = input(
+                            " Class Weight ['balanced', 'balanced_subsample', blank for None]: ").strip().lower()
+                        if not raw_cw or raw_cw == "none":
+                            class_weight = None
+                            break
+                        if raw_cw in ["balanced", "balanced_subsample"]:
+                            class_weight = raw_cw
+                            break
+                        print(" [ERROR] Invalid choice. Select 'balanced', 'balanced_subsample', or leave blank.")
 
+                # Assemble the dictionary for the current worker
                 worker_params = {
-                    "max_depth": max_depth, "min_samples_split": min_samples_split,
-                    "min_samples_leaf": min_samples_leaf, "max_features": max_features,
-                    "max_samples": max_samples, "criterion": criterion,
-                    "class_weight": class_weight, "n_jobs": -1
+                    "max_depth": max_depth,
+                    "min_samples_split": min_samples_split,
+                    "min_samples_leaf": min_samples_leaf,
+                    "max_features": max_features,
+                    "max_samples": max_samples,
+                    "criterion": criterion,
+                    "class_weight": class_weight,
+                    "n_jobs": -1
                 }
                 config_data['custom_hyperparams'].append(worker_params)
 
+            # If the strategy is homogeneous, duplicate the configuration for all workers
             if config_data['strategy'] == "homogeneous":
                 config_data['custom_hyperparams'] = config_data['custom_hyperparams'] * config_data['workers']
 
