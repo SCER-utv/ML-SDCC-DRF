@@ -5,6 +5,8 @@ import time
 from sklearn.metrics import roc_auc_score, accuracy_score, mean_squared_error, r2_score, mean_absolute_error, \
     precision_score, recall_score, f1_score
 
+from src.utils.auxiliary import extract_dataset_name
+
 
 # Handles the aggregation of worker results and metrics calculation on the master
 class EvaluationManager:
@@ -63,7 +65,7 @@ class EvaluationManager:
             # In only bulk infer the payload does not contain the train url, so we get it from dynamodb
             _, _, _, _, _, _, original_train_url = self.aws.get_job_state(target_model)
 
-        dataset_name = self.aws.extract_dataset_name(original_train_url)
+        dataset_name = extract_dataset_name(original_train_url)
 
         report_data = {
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),

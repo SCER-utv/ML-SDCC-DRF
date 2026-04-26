@@ -1,6 +1,7 @@
 import sys
 import time
 
+from src.utils.auxiliary import extract_dataset_name
 from src.utils.config import load_config
 from src.aws.client_aws_manager import ClientAWSManager
 from src.client.cli_prompts import CLI
@@ -46,15 +47,18 @@ def main():
 
         tuple_data = cli.prompt_realtime_input(aws, s3_key, dataset_info)
 
+    dataset_url = dataset_info.get('train_url') or dataset_info.get('test_url') or ""
+    ds_name = extract_dataset_name(dataset_url)
+
     # Generate a clean, flat Job ID
     timestamp = int(time.time())
     if mode in ['train', 'train_and_infer']:
         w = cluster_config.get('workers', 0)
         t = cluster_config.get('trees', 0)
         strat = cluster_config.get('strategy')
-        job_id = f"job_{strat}_{t}trees_{w}workers_{timestamp}"
+        job_id = f"job_{ds_name}_{strat}_{t}trees_{w}workers_{timestamp}"
     else:
-        job_id = f"req_{timestamp}"
+        job_id = f"req_{ds_name}_{timestamp}"
 
     # Construct the minimal payload representing the client contract for the master node
     payload = {
