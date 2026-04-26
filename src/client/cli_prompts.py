@@ -103,10 +103,12 @@ class CLI:
 
         while True:
             try:
-                config_data['trees'] = int(input(" Enter TOTAL number of Trees (e.g., 100): "))
+                config_data['trees'] = int(input(" Enter TOTAL number of Trees (>= number of workers): "))
 
                 if config_data['trees'] <= 0:
                     print(" [ERROR] Values must be greater than zero.")
+                elif config_data['trees'] < config_data['workers']:
+                    print(" [ERROR] Values must be greater or equal to number of workers.")
                 else:
                     break
             except ValueError:
