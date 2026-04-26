@@ -24,11 +24,11 @@ def main():
     mode = cli.prompt_operation_mode()
 
     # Prompt user directly for the necessary URLs based on the selected mode
-    dataset_info = cli.prompt_dataset_selection(mode)
+    dataset_info = cli.prompt_dataset_selection(mode, aws)
 
     cluster_config = {}
     if mode in ['train', 'train_and_infer']:
-        cluster_config = cli.prompt_cluster_config(dataset_info)
+        cluster_config = cli.prompt_cluster_config(dataset_info, aws)
 
     target_model = None
     if mode in ['infer', 'bulk_infer', 'download']:

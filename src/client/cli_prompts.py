@@ -37,8 +37,35 @@ class CLI:
             if mode_choice == '5': return 'download'
             print(" [ERROR] Invalid choice. Please try again.")
 
+    # Helper function to validate S3 URI input
+    def _get_s3_input(self, prompt_text, aws, expected_extension=".csv"):
+        while True:
+            # Allow the user to abort if they realize they don't have the file
+            url = input(prompt_text).strip()
+            if url.lower() == 'exit':
+                print(" [SYSTEM] Operation aborted by user. Exiting...")
+                sys.exit(0)
+
+            # 1. Format Validation
+            if not (url.startswith("s3://") and url.endswith(expected_extension)):
+                print(f" [ERROR] Invalid format. Must start with 's3://' and end with '{expected_extension}'.")
+                continue
+
+            # 2. Existence Validation
+            print(" [VALIDATION] Verifying file existence on S3...")
+            try:
+                bucket, key = aws.parse_s3_uri(url)
+                if aws.check_s3_file_exists(bucket, key):
+                    print(" [SUCCESS] File found and validated!")
+                    return url
+                else:
+                    print(f" [ERROR] File DOES NOT exist at '{url}'.")
+                    print(" Please check for typos or type 'abort' to exit.")
+            except Exception as e:
+                print(f" [ERROR] Failed to validate S3 URL: {e}")
+
     # Prompts the user to provide the exact S3 URLs and target column based on the operation mode
-    def prompt_dataset_selection(self, mode):
+    def prompt_dataset_selection(self, mode, aws):
         # If downloading, we don't need dataset info
         if mode == 'download':
             return {}
@@ -51,24 +78,16 @@ class CLI:
             "target_col": "", "task_type": "classification"
         }
 
-        # Helper function to validate S3 URI input
-        def get_s3_input(prompt_text):
-            while True:
-                url = input(prompt_text).strip()
-                if url.startswith("s3://") and url.endswith(".csv"):
-                    return url
-                print(" [ERROR] Invalid format. Must start with 's3://' and end with '.csv'.")
-
         # Ask only for what is strictly necessary based on the mode
         if mode in ['train', 'train_and_infer']:
-            dataset_info["train_url"] = get_s3_input("\n Enter the S3 URL of the TRAINING Dataset: ")
+            dataset_info["train_url"] = self._get_s3_input("\n Enter the S3 URL of the TRAINING Dataset (or type 'exit'): ", aws)
 
         if mode in ['bulk_infer', 'train_and_infer']:
-            dataset_info["test_url"] = get_s3_input("\n Enter the S3 URL of the TEST Dataset: ")
+            dataset_info["test_url"] = self._get_s3_input("\n Enter the S3 URL of the TEST Dataset (or type 'exit'): ", aws)
 
         if mode == 'infer':
-            dataset_info["train_url"] = get_s3_input(
-                "\n Enter the S3 URL of the TRAINING Dataset (used to extract feature names): ")
+            dataset_info["train_url"] = self._get_s3_input(
+                "\n Enter the S3 URL of the TRAINING Dataset (used to extract feature names)(or type 'exit'): ", aws)
 
         dataset_info["target_col"] = input(
             "\n Enter the EXACT name of the Target Column to predict (e.g., Label): ").strip()
@@ -85,7 +104,7 @@ class CLI:
         return dataset_info
 
     # Gathers cluster settings and machine learning hyperparameters
-    def prompt_cluster_config(self, dataset_info):
+    def prompt_cluster_config(self, dataset_info, aws):
         print("\n" + "-" * 40)
         print(" Cluster & Hyperparameter Configuration")
 
@@ -153,12 +172,12 @@ class CLI:
         config_data['strategies_url'] = None
 
         if hyper_source == '3':
-            while True:
-                url = input("\n Enter the S3 URL for the strategies JSON: ").strip()
-                if url.startswith("s3://") and url.endswith(".json"):
-                    config_data['strategies_url'] = url
-                    break
-                print(" [ERROR] Invalid format. Must start with 's3://' and end with '.json'.")
+            config_data['strategies_url'] = self._get_s3_input(
+                "\n Enter the S3 URL for the strategies JSON (or type 'exit' to exit): ",
+                aws,
+                expected_extension=".json"
+            )
+
         elif hyper_source == '2':
             print("\n [MANUAL HYPERPARAMETERS CONFIGURATION]")
             config_data['custom_hyperparams'] = []

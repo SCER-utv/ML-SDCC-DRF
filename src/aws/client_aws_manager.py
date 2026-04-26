@@ -3,6 +3,7 @@ import json
 import time
 import joblib
 import boto3
+import botocore
 
 
 # Handles all communications between the local client and the AWS infrastructure
@@ -87,6 +88,26 @@ class ClientAWSManager:
         except Exception as e:
             print(f" [WARNING] Unable to read header from S3: {e}")
             return []
+
+    # Extracts bucket and key from an S3 URL safely
+    @staticmethod
+    def parse_s3_uri(s3_uri):
+        if s3_uri is None or s3_uri == "":
+            return "", ""
+        parts = s3_uri.replace("s3://", "").split("/", 1)
+        if len(parts) < 2:
+            return parts[0], ""
+        return parts[0], parts[1]
+
+    # Rapid check of a file existence on S3
+    def check_s3_file_exists(self, bucket, key):
+        try:
+            self.s3_client.head_object(Bucket=bucket, Key=key)
+            return True
+        except botocore.exceptions.ClientError as e:
+            if e.response['Error']['Code'] == "404":
+                return False
+            raise e
 
     # Downloads worker .joblib files and merges them into a single local Scikit-Learn model
     def download_and_merge_model(self, target_model):
