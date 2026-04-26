@@ -29,7 +29,7 @@ class ClassificationModel(BaseModel):
         n_jobs = params.get('n_jobs', -1)
 
         print(
-            f" Training {n_estimators} trees (Depth: {max_depth} | Split: {min_samples_split} | Leaf: {min_samples_leaf} | Feat: {max_features})")
+            f" Training {n_estimators} trees (Depth: {max_depth} | Split: {min_samples_split} | Leaf: {min_samples_leaf} | Feat: {max_features} | Samples: {max_samples} | Crit: {criterion} | Class weight: {class_weight})")
 
         # separate features and target variable
         X = df.drop(columns=[self.target_column])

@@ -28,8 +28,7 @@ class RegressionModel(BaseModel):
         n_jobs = params.get('n_jobs', -1)
 
         print(
-            f"-> Training {params['trees']} trees. (Depth: {params['max_depth']} | Max features: {params['max_features']} | Criterion: {params['criterion']})")
-
+            f" Training {n_estimators} trees (Depth: {max_depth} | Split: {min_samples_split} | Leaf: {min_samples_leaf} | Feat: {max_features} | Samples: {max_samples} | Crit: {criterion})")
         # separate features and target variable
         X = df.drop(columns=[self.target_column])
         y = df[self.target_column]
