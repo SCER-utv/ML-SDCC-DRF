@@ -93,12 +93,20 @@ class CLI:
         while True:
             try:
                 config_data['workers'] = int(input("\n Enter number of Workers (1-8): "))
+
+                if config_data['workers'] <= 0 or config_data['workers'] > 8:
+                    print(" [ERROR] Values must be between 1-8.")
+                else:
+                    break
+            except ValueError:
+                print(" [ERROR] Invalid input. Please enter integers only.")
+
+        while True:
+            try:
                 config_data['trees'] = int(input(" Enter TOTAL number of Trees (e.g., 100): "))
 
-                if config_data['workers'] <= 0 or config_data['trees'] <= 0:
+                if config_data['trees'] <= 0:
                     print(" [ERROR] Values must be greater than zero.")
-                elif config_data['workers'] > 8:
-                    print(" [ERROR] The maximum number of workers allowed is 8. Please try again.")
                 else:
                     break
             except ValueError:
