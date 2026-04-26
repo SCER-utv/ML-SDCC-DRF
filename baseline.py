@@ -43,14 +43,14 @@ DATASETS_METADATA = {
     "taxi": {
         "task_type": "regression",
         "target_col": "Label",
-        "train_path": "data/taxi_1M_train.csv",
-        "test_path": "data/taxi_1M_test.csv"
+        "train_path": "data/taxi/taxi_1M_train.csv",
+        "test_path": "data/taxi/taxi_1M_test.csv"
     },
     "synthetic": {
         "task_type": "classification",
         "target_col": "Label",
-        "train_path": "data/synthetic_1M_train.csv",
-        "test_path": "data/synthetic_1M_test.csv"
+        "train_path": "data/synthetic/synthetic_1M_train.csv",
+        "test_path": "data/synthetic/synthetic_1M_test.csv"
     }
 }
 
