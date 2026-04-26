@@ -14,6 +14,8 @@ class InferencePipeline:
     def run_bulk(self, job_data, job_id):
         target_model = job_data['target_model']
         test_url = job_data.get('test_url', '')
+        task_type = job_data.get('task_type', 'classification')
+        target_col = job_data.get('target_column', 'Label')
         total_start_time = job_data.get('client_start_time', time.time())
 
         if not test_url:
@@ -53,7 +55,7 @@ class InferencePipeline:
         """
 
         # 3. Fan-out task generation
-        self._dispatch_bulk_tasks(job_id, test_url, model_s3_uris, s3_inference_results)
+        self._dispatch_bulk_tasks(job_id, test_url, model_s3_uris, s3_inference_results, task_type, target_col)
         self.aws.update_job_state(job_id, set(), s3_inference_results, start_infer, True, historical_train_time, 0.0, original_train_url)
 
         """
@@ -116,7 +118,7 @@ class InferencePipeline:
 
         # 2. Dispatch the tuple to all workers
         inference_pure_start = time.time()
-        self._dispatch_realtime_tasks(job_id, model_s3_uris, tuple_data)
+        self._dispatch_realtime_tasks(job_id, model_s3_uris, tuple_data, task_type)
 
         """
         # ==========================================================
@@ -182,7 +184,7 @@ class InferencePipeline:
         return historical_train_time, s3_inference_results, start_infer, original_train_url
 
     # Queues inference payloads for each worker
-    def _dispatch_bulk_tasks(self, job_id, test_url, model_s3_uris, s3_inference_results):
+    def _dispatch_bulk_tasks(self, job_id, test_url, model_s3_uris, s3_inference_results, task_type, target_col):
         infer_queue = self.aws.sqs_queues["infer_task"]
 
         for i, uri in enumerate(model_s3_uris):
@@ -192,7 +194,9 @@ class InferencePipeline:
                     "job_id": job_id,
                     "task_id": task_id,
                     "test_dataset_uri": test_url,
-                    "model_s3_uri": uri
+                    "model_s3_uri": uri,
+                    "task_type": task_type,
+                    "target_column": target_col,
                 }
                 self.aws.sqs_client.send_message(QueueUrl=infer_queue, MessageBody=json.dumps(infer_task))
                 print(f" [INFER DISPATCH] Task {task_id} sent to inference queue.")
@@ -295,14 +299,15 @@ class InferencePipeline:
         return num_trees, weights, strat
 
     # Broadcasts a single tuple payload to all workers
-    def _dispatch_realtime_tasks(self, job_id, model_s3_uris, tuple_data):
+    def _dispatch_realtime_tasks(self, job_id, model_s3_uris, tuple_data, task_type):
         infer_task_queue = self.aws.sqs_queues["infer_task"]
         for i, uri in enumerate(model_s3_uris):
             task = {
                 "job_id": job_id,
                 "task_id": f"task_infer_rt_{i + 1}",
                 "model_s3_uri": uri,
-                "tuple_data": tuple_data
+                "tuple_data": tuple_data,
+                "task_type": task_type
             }
             self.aws.sqs_client.send_message(QueueUrl=infer_task_queue, MessageBody=json.dumps(task))
 
