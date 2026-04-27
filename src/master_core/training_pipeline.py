@@ -16,13 +16,13 @@ class TrainingPipeline:
         num_workers = job_data['num_workers']
         train_url = job_data.get('train_url', '')
 
-        # 1. Fault tolerance state recovery
-        completed_train_tasks, s3_inference_results, start_train, tasks_dispatched, training_time, final_train_url = self._recover_or_initialize_state(
-            job_id, train_url)
-
-        # 2. Infrastructure provisioning
+        # 1. Infrastructure provisioning
         self.aws.scale_worker_infrastructure(num_workers)
         time.sleep(10)
+        
+        # 2. Fault tolerance state recovery
+        completed_train_tasks, s3_inference_results, start_train, tasks_dispatched, training_time, final_train_url = self._recover_or_initialize_state(
+            job_id, train_url)
 
         # 3. Dataset validation and row counting
         calculated_train_rows = None
