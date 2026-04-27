@@ -91,7 +91,7 @@ def save_unified_baseline_metrics(dataset, n_trees, train_time, inf_time, metric
     Saves all metrics in a single global CSV file.
     Metrics not relevant to the current task will remain empty to keep the format clean.
     """
-    s3_key = "results/unified_baseline_results.csv"
+    s3_key = "metrics/unified_baseline_results.csv"
 
     # Prepare an "empty" row with all possible columns
     row_data = {
