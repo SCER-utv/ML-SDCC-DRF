@@ -15,14 +15,15 @@ class TrainingPipeline:
     def run(self, job_data, job_id):
         num_workers = job_data['num_workers']
         train_url = job_data.get('train_url', '')
+        client_start_time = job_data.get('client_start_time', time.time())
 
         # 1. Infrastructure provisioning
         self.aws.scale_worker_infrastructure(num_workers)
         time.sleep(10)
         
         # 2. Fault tolerance state recovery
-        completed_train_tasks, s3_inference_results, start_train, tasks_dispatched, training_time, final_train_url = self._recover_or_initialize_state(
-            job_id, train_url)
+        completed_train_tasks, s3_inference_results, total_start_time, train_start_time, tasks_dispatched, final_train_url = self._recover_or_initialize_state(
+            job_id, train_url, client_start_time)
 
         # 3. Dataset validation and row counting
         calculated_train_rows = None
@@ -46,8 +47,8 @@ class TrainingPipeline:
         if not tasks_dispatched:
             self._generate_tasks(job_data, job_id, calculated_train_rows)
             tasks_dispatched = True
-            self.aws.update_job_state(job_id, completed_train_tasks, s3_inference_results, start_train,
-                                      tasks_dispatched, training_time, 0.0, final_train_url)
+            self.aws.update_job_state(job_id, completed_train_tasks, s3_inference_results, total_start_time,
+                                      tasks_dispatched, train_start_time, 0.0, final_train_url)
         else:
             print(" [RECOVERY] SQS Fan-Out skipped to prevent duplicates.")
 
@@ -66,11 +67,14 @@ class TrainingPipeline:
         """
 
         # 5. Wait for worker results via SQS polling
-        self._wait_for_workers(job_id, num_workers, completed_train_tasks, start_train, tasks_dispatched, final_train_url)
+        self._wait_for_workers(job_id, num_workers, completed_train_tasks, total_start_time, train_start_time, tasks_dispatched, final_train_url)
 
         # 6. Closure and client notification
-        total_run_time = time.time() - start_train
-        print(f" [TIMERS] Distributed Training completed in {total_run_time:.2f}s")
+        pure_training_time = time.time() - train_start_time
+        cluster_latency = time.time() - total_start_time
+
+        print(f"\n [TIMERS] Pure Training Time (Compute): {pure_training_time:.2f}s")
+        print(f" [TIMERS] Global Cluster Latency:       {cluster_latency:.2f}s\n")
 
         """
         # ==========================================================
@@ -86,20 +90,33 @@ class TrainingPipeline:
         """
 
         if job_data.get('mode') == 'train':
-            self._send_client_response(job_id, "train", total_run_time)
+            self._send_client_response(job_id, "train", cluster_latency)
 
     # Recovers previous training state from DynamoDB or initializes a new one
-    def _recover_or_initialize_state(self, job_id, train_url):
-        completed_train_tasks, s3_results, db_start, tasks_dispatched, train_time, _, db_train_url= self.aws.get_job_state(job_id)
+    def _recover_or_initialize_state(self, job_id, train_url, client_start_time):
+        completed_train_tasks, s3_results, db_total_start, tasks_dispatched, db_train_time, _, db_train_url= self.aws.get_job_state(job_id)
 
-        if db_start is None:
-            start_train = time.time()
-            self.aws.update_job_state(job_id, completed_train_tasks, s3_results, start_train, False, train_time, 0.0, train_url)
+        if db_total_start is None:
+            # First execution
+            total_start_time = client_start_time
+            train_start_time = time.time()
+            print(" [TRAIN] Starting pure training time...")
         else:
-            start_train = db_start
-            print(f" [RECOVERY] Restored. Current state: {len(completed_train_tasks)} Train tasks complete. (Train URL: {train_url})")
+            # Recovery from crash
+            total_start_time = db_total_start
 
-        return completed_train_tasks, s3_results, start_train, tasks_dispatched, train_time, train_url
+            if db_train_time is None or db_train_time == 0.0:
+                train_start_time = time.time()
+            elif db_train_time > 1e8:
+                # unix timestamp, master crashed while workers were executing
+                train_start_time = db_train_time
+                print(f" [RECOVERY] Restored training start timestamp: {train_start_time}")
+            else:
+                # master crashed after calculating clocks
+                train_start_time = time.time() - db_train_time
+                print(f" [RECOVERY] Restored completed training duration: {db_train_time}s")
+
+        return completed_train_tasks, s3_results, total_start_time, train_start_time, tasks_dispatched, train_url
 
     # Validates the existence of the training dataset on S3 and counts its total rows
     def _ensure_dataset_ready(self, train_url):
@@ -254,7 +271,7 @@ class TrainingPipeline:
             """
 
     # Polls the SQS response queue until all workers complete their training tasks
-    def _wait_for_workers(self, job_id, num_workers, completed_train_tasks, start_train, tasks_dispatched, train_url):
+    def _wait_for_workers(self, job_id, num_workers, completed_train_tasks, total_start_time, train_start_time, tasks_dispatched, train_url):
         print("\n [EVENT LOOP] Master listening actively for Worker responses...\n")
         train_resp_queue = self.aws.sqs_queues["train_response"]
 
@@ -291,7 +308,7 @@ class TrainingPipeline:
                         completed_train_tasks.add(task_id)
                         print(
                             f" [ACK] Worker completed training for {task_id}! ({len(completed_train_tasks)}/{num_workers})")
-                        self.aws.update_job_state(job_id, completed_train_tasks, {}, start_train, tasks_dispatched, training_time = 0.0,
+                        self.aws.update_job_state(job_id, completed_train_tasks, {}, total_start_time, tasks_dispatched, training_time=train_start_time,
                                                   inference_time=0.0, train_url=train_url)
 
                     self.aws.sqs_client.delete_message(QueueUrl=train_resp_queue, ReceiptHandle=msg['ReceiptHandle'])
@@ -314,8 +331,8 @@ class TrainingPipeline:
                         break
                     
 
-        training_time = time.time() - start_train
-        self.aws.update_job_state(job_id, completed_train_tasks, {}, start_train, tasks_dispatched, training_time = training_time, inference_time = 0.0, train_url = train_url)
+        final_training_time = time.time() - train_start_time
+        self.aws.update_job_state(job_id, completed_train_tasks, {}, total_start_time, tasks_dispatched, training_time = final_training_time, inference_time = 0.0, train_url = train_url)
         print("\n [PIPELINE] All Workers completed their Training tasks!")
 
     # Notifies the client that the training pipeline has finished
