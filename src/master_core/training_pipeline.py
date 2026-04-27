@@ -165,6 +165,10 @@ class TrainingPipeline:
                 matched_key = get_closest_key(strategies_data, num_trees)
                 if matched_key:
                     conf = strategies_data[matched_key]
+                    if not isinstance(conf, dict):
+                        raise ValueError(
+                            "The uploaded JSON file has a wrong structure for homogeneous strategies.")
+
                     if matched_key != str(num_trees):
                         print(
                             f" [INFO] Exact homogeneous config for {num_trees} trees not found. Falling back to closest match: {matched_key} trees.")
@@ -176,6 +180,11 @@ class TrainingPipeline:
                 matched_key = get_closest_key(strategies_data, num_workers)
                 if matched_key:
                     conf_list = strategies_data[matched_key]
+
+                    if not isinstance(conf_list, list):
+                        raise ValueError(
+                            "The uploaded JSON file has a wrong structure for heterogeneous strategies.")
+
                     if matched_key != str(num_workers):
                         print(
                             f" [INFO] Exact heterogeneous config for {num_workers} workers not found. Falling back to closest match: {matched_key} workers.")

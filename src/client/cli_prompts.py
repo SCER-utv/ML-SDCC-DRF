@@ -78,19 +78,46 @@ class CLI:
             "target_col": "", "task_type": "classification"
         }
 
+        url_to_check = None
         # Ask only for what is strictly necessary based on the mode
         if mode in ['train', 'train_and_infer']:
             dataset_info["train_url"] = self._get_s3_input("\n Enter the S3 URL of the TRAINING Dataset (or type 'exit'): ", aws)
+            url_to_check = dataset_info["train_url"]
 
         if mode in ['bulk_infer', 'train_and_infer']:
             dataset_info["test_url"] = self._get_s3_input("\n Enter the S3 URL of the TEST Dataset (or type 'exit'): ", aws)
+            url_to_check = dataset_info["test_url"]
 
         if mode == 'infer':
-            dataset_info["train_url"] = self._get_s3_input(
-                "\n Enter the S3 URL of the TRAINING Dataset (used to extract feature names)(or type 'exit'): ", aws)
+            dataset_info["train_url"] = self._get_s3_input("\n Enter the S3 URL of the TRAINING Dataset (used to extract feature names)(or type 'exit'): ", aws)
+            url_to_check = dataset_info["train_url"]
 
-        dataset_info["target_col"] = input(
-            "\n Enter the EXACT name of the Target Column to predict (e.g., Label): ").strip()
+        available_columns = []
+        if url_to_check:
+            bucket, key = aws.parse_s3_uri(url_to_check)
+            print(" [VALIDATION] Fetching column headers from S3...")
+            try:
+                available_columns = aws.get_csv_headers_from_s3(bucket, key)
+            except Exception as e:
+                print(f" [WARNING] Could not fetch headers for validation: {e}")
+
+
+        while True:
+            target_input = input("\n Enter the EXACT name of the Target Column to predict (Semantic validation not executed, make sure to insert the right Target column): ").strip()
+
+            if available_columns:
+                if target_input in available_columns:
+                    dataset_info["target_col"] = target_input
+                    break
+                else:
+                    print(f" [ERROR] Column '{target_input}' NOT FOUND in the dataset.")
+                    print(f" Available columns are: {', '.join(available_columns[:5])}... (and others)")
+            else:
+                # Fallback if columns retrieve does not work
+                dataset_info["target_col"] = target_input
+                break
+
+
 
         print("\n Specify the ML Task Type:")
         print("  1) Binary Classification\n  2) Regression")
@@ -394,11 +421,12 @@ class CLI:
                     print(" [ERROR] Please enter a valid number.")
 
     # Prompts for manual data entry of features to perform real-time inference
-    def prompt_realtime_input(self, aws_manager, dataset_s3_key, dataset_info):
+    def prompt_realtime_input(self, aws_manager, dataset_url, dataset_info):
         feature_names = None
-        if dataset_s3_key:
-            feature_names = aws_manager.get_feature_names_from_s3(dataset_s3_key,
-                                                                  target_column=dataset_info.get('target_col', ''))
+        if dataset_url:
+            bucket, key = aws_manager.parse_s3_uri(dataset_url)
+            feature_names = aws_manager.get_csv_headers_from_s3(bucket, key,
+                                                                  target_column_to_remove=dataset_info.get('target_col', ''))
 
         required_features = len(feature_names) if feature_names else 0
 

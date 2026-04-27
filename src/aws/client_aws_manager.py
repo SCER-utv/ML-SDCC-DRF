@@ -73,18 +73,24 @@ class ClientAWSManager:
 
         return models
 
-    # Reads the header of a CSV on S3 on-the-fly to guide the user in real-time input
-    def get_feature_names_from_s3(self, s3_key, target_column="Label"):
+    # Reads the header of a CSV on S3 to retrieve column names.
+    # If a target_column is provided, it removes it from the list (useful for ML feature extraction).
+    def get_csv_headers_from_s3(self, s3_bucket, s3_key, target_column_to_remove=None):
         try:
-            response = self.s3_client.get_object(Bucket=self.bucket, Key=s3_key)
+            response = self.s3_client.get_object(Bucket=s3_bucket, Key=s3_key)
+
+            # Extracts first row
             first_line = next(response['Body'].iter_lines()).decode('utf-8')
             response['Body'].close()
 
             all_columns = [col.strip() for col in first_line.split(',')]
-            if target_column in all_columns:
-                all_columns.remove(target_column)
+
+            # It removes target col if needed
+            if target_column_to_remove and target_column_to_remove in all_columns:
+                all_columns.remove(target_column_to_remove)
 
             return all_columns
+
         except Exception as e:
             print(f" [WARNING] Unable to read header from S3: {e}")
             return []

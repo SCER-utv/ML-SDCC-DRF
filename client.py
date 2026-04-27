@@ -45,7 +45,7 @@ def main():
         train_url = dataset_info.get('train_url', "")
         s3_key = train_url.replace(f"s3://{aws.bucket}/", "") if train_url else ""
 
-        tuple_data = cli.prompt_realtime_input(aws, s3_key, dataset_info)
+        tuple_data = cli.prompt_realtime_input(aws, train_url, dataset_info)
 
     dataset_url = dataset_info.get('train_url') or dataset_info.get('test_url') or ""
     ds_name = extract_dataset_name(dataset_url)
