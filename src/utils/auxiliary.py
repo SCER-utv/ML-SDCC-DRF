@@ -11,7 +11,7 @@ def extract_dataset_name(s3_url):
     base_name = filename.rsplit('.', 1)[0]
 
     # Remove banned words (case-insensitive)
-    words_to_remove = ['homogeneous', 'heterogeneous', 'trees', 'tree']
+    words_to_remove = ['homogeneous', 'heterogeneous', 'trees', 'tree', 'train', 'test']
     for word in words_to_remove:
         base_name = re.sub(f'(?i){word}', '', base_name)
 
