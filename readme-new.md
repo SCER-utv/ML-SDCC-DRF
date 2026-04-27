@@ -13,11 +13,11 @@ The system abstracts the complexity of distributed computing through a highly in
 ### 1. Distributed Training (Training Only)
 Allows users to train large-scale Random Forest models across a distributed cluster of EC2 instances. Instead of being bottlenecked by a single machine's computational limits, the system horizontally parallelizes the workload. The result is a powerful, globally distributed model consisting of multiple independent `.joblib` sub-forests safely stored on S3, ready for future use.
 
-### 2. End-to-End Pipeline (Train + Auto-Evaluate)
-A fully automated, continuous workflow designed specifically for rapid prototyping and academic benchmarking. It seamlessly chains the Distributed Training phase directly into the Bulk Inference phase. Users can submit a job and walk away; the system will build the distributed model, test it against a hold-out dataset, and immediately output comprehensive evaluation metrics (such as ROC-AUC, F1-Score, RMSE, and MAPE) in both CLI and persistent CSV/JSON logs.
-
-### 3. Bulk Inference (Massive Test Set Evaluation)
+### 2. Bulk Inference (Massive Test Set Evaluation)
 Enables the evaluation of previously trained distributed models against massive, out-of-core test datasets. This mode is designed to bypass traditional memory constraints entirely. It allows users to point the system to a test file containing millions of rows and receive a highly accurate, globally aggregated evaluation without risking local or cluster-wide Out-Of-Memory crashes.
+
+### 3. End-to-End Pipeline (Train + Auto-Evaluate)
+A fully automated, continuous workflow designed specifically for rapid prototyping and academic benchmarking. It seamlessly chains the Distributed Training phase directly into the Bulk Inference phase. Users can submit a job and walk away; the system will build the distributed model, test it against a hold-out dataset, and immediately output comprehensive evaluation metrics (such as ROC-AUC, F1-Score, RMSE, and MAPE) in both CLI and persistent CSV/JSON logs.
 
 ### 4. Real-Time Inference (Single Prediction)
 Engineered for ad-hoc, on-the-fly predictions requiring ultra-low latency. Users can interactively input a single data point (tuple) directly through the CLI. The system safely guides the input using fetched dataset headers, broadcasts the query to the active compute cluster, and aggregates the consensus (Majority Vote or Mean) in less than a second. It is the perfect tool for instant model querying and interactive testing.
@@ -37,7 +37,7 @@ The system is built on a highly decoupled architecture, based on master-worker p
 ---
 
 ### 1. Client
-The `client.py` file exposes an interactive CLI that guides the user through configuration of the cluster and the Machine Learning job. Its primary purpose is to abstract the underlying cloud infrastructure complexity from the end user.
+The `client.py` file exposes an interactive CLI that guides the user through configuration of the cluster and the Machine Learning job. Its primary purpose is to abstract the underlying cloud infrastructure complexity from the end user and guarantee input validity.
 * **Job Contract:** Upon completing the configuration, the client builds a JSON dictionary containing the user's intentions. This job contract is dispatched to the Master node via SQS.
 * **Dynamic Inference Management:** During Real-Time inference requests, the Client fetches the dataset header "on-the-fly" from S3 to validate user input, ensuring the provided tuple perfectly matches the format expected by the distributed model.
 
