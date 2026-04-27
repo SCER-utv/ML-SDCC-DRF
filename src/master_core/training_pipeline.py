@@ -277,14 +277,22 @@ class TrainingPipeline:
             if 'Messages' in res_train:
                 for msg in res_train['Messages']:
                     train_resp = json.loads(msg['Body'])
+
+                    msg_job_id = train_resp.get('job_id')
+                    if msg_job_id != job_id:
+                        print(f" [CLEANUP] Removed zombie message from job: {msg_job_id}")
+                        self.aws.sqs_client.delete_message(QueueUrl=train_resp_queue,
+                                                           ReceiptHandle=msg['ReceiptHandle'])
+                        continue
+
                     task_id = train_resp['task_id']
 
                     if task_id not in completed_train_tasks:
                         completed_train_tasks.add(task_id)
                         print(
                             f" [ACK] Worker completed training for {task_id}! ({len(completed_train_tasks)}/{num_workers})")
-                        self.aws.update_job_state(job_id, completed_train_tasks, {}, start_train, tasks_dispatched, 0.0,
-                                                  0.0, train_url)
+                        self.aws.update_job_state(job_id, completed_train_tasks, {}, start_train, tasks_dispatched, training_time = 0.0,
+                                                  inference_time=0.0, train_url=train_url)
 
                     self.aws.sqs_client.delete_message(QueueUrl=train_resp_queue, ReceiptHandle=msg['ReceiptHandle'])
 
@@ -301,10 +309,13 @@ class TrainingPipeline:
                         time.sleep(15)
                     # ==========================================================
                     """
+
+                    if len(completed_train_tasks) == num_workers:
+                        break
                     
 
         training_time = time.time() - start_train
-        self.aws.update_job_state(job_id, completed_train_tasks, {}, start_train, tasks_dispatched, training_time, 0.0, train_url)
+        self.aws.update_job_state(job_id, completed_train_tasks, {}, start_train, tasks_dispatched, training_time = training_time, inference_time = 0.0, train_url = train_url)
         print("\n [PIPELINE] All Workers completed their Training tasks!")
 
     # Notifies the client that the training pipeline has finished

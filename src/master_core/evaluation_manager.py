@@ -17,7 +17,7 @@ class EvaluationManager:
 
     # Orchestrates the final aggregation and evaluation phase using metadata from the payload
     def aggregate_and_evaluate(self, job_data, job_id, s3_inference_results, num_workers,
-                               trees, weights, train_time, infer_time, strategy):
+                               trees, weights, train_time, start_infer, strategy):
         print("\n" + "=" * 50)
         print(" FINAL AGGREGATION & EVALUATION PHASE")
         print("=" * 50)
@@ -51,6 +51,9 @@ class EvaluationManager:
         else:
             metrics_dict = self._evaluate_regression(predictions_list, y_true, weights)
 
+        total_infer_time = time.time() - start_infer
+        print(f" Total Inference Time (Map + Reduce): {total_infer_time:.2f}s")
+
         print("=" * 50 + "\n")
 
         strategy_name = "Homogeneous" if strategy == "homogeneous" else "Heterogeneous"
@@ -76,7 +79,7 @@ class EvaluationManager:
             "trees": trees,
             "workers": num_workers,
             "train_time_sec": round(train_time, 2),
-            "infer_time_sec": round(infer_time, 2)
+            "infer_time_sec": round(total_infer_time, 2)
         }
 
         report_data.update(metrics_dict)

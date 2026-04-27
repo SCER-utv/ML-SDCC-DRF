@@ -39,7 +39,10 @@ class InferencePipeline:
         self.aws.scale_worker_infrastructure(num_workers)
 
         # 2. Fault tolerance state recovery
-        historical_train_time, s3_inference_results, start_infer, original_train_url = self._recover_bulk_state(job_id, target_model)
+        db_start, historical_train_time, s3_inference_results, start_infer, original_train_url = self._recover_bulk_state(job_id, target_model)
+
+        if db_start:
+            total_start_time = db_start
 
         """
         # ==========================================================
@@ -56,7 +59,8 @@ class InferencePipeline:
 
         # 3. Fan-out task generation
         self._dispatch_bulk_tasks(job_id, test_url, model_s3_uris, s3_inference_results, task_type, target_col)
-        self.aws.update_job_state(job_id, set(), s3_inference_results, start_infer, True, historical_train_time, 0.0, original_train_url)
+        current_inference_duration = time.time() - start_infer
+        self.aws.update_job_state(job_id, set(), s3_inference_results, total_start_time, True, training_time = historical_train_time, inference_time = current_inference_duration, train_url = original_train_url)
 
         """
         # ==========================================================
@@ -72,8 +76,8 @@ class InferencePipeline:
         """
 
         # 4. Wait for workers to process chunks
-        inference_time = self._wait_for_bulk_workers(job_id, num_workers, s3_inference_results, start_infer,
-                                                     historical_train_time, original_train_url)
+        self._wait_for_bulk_workers(job_id, num_workers, s3_inference_results, total_start_time,
+                                                     historical_train_time, start_infer, original_train_url)
 
         """
         # ==========================================================
@@ -94,8 +98,20 @@ class InferencePipeline:
         # We pass the flattened data to the evaluator
         final_metrics = self.evaluator.aggregate_and_evaluate(
             job_data, job_id, s3_inference_results, num_workers,
-            num_trees, weights, historical_train_time, inference_time, strat
+            num_trees, weights, historical_train_time, start_infer, strat
         )
+
+        if final_metrics:
+            self.aws.update_job_state(
+                job_id,
+                set(),
+                s3_inference_results,
+                total_start_time,
+                True,
+                training_time=historical_train_time,
+                inference_time=final_metrics['infer_time_sec'],
+                train_url=original_train_url
+            )
 
         # 6. Notify the client
         self._send_client_response(job_id, job_data.get('mode', 'bulk_infer'), time.time() - total_start_time, metrics=final_metrics)
@@ -179,9 +195,9 @@ class InferencePipeline:
     # Retrieves previous training duration and current inference state from DynamoDB
     def _recover_bulk_state(self, job_id, target_model):
         _, _, _, _, historical_train_time, _, original_train_url = self.aws.get_job_state(target_model)
-        _, s3_inference_results, db_infer_start, _, _, _, _ = self.aws.get_job_state(job_id)
-        start_infer = db_infer_start if db_infer_start else time.time()
-        return historical_train_time, s3_inference_results, start_infer, original_train_url
+        _, s3_inference_results, db_total_start, _, _, db_infer_time, _ = self.aws.get_job_state(job_id)
+        start_infer = time.time() - db_infer_time
+        return db_total_start, historical_train_time, s3_inference_results, start_infer, original_train_url
 
     # Queues inference payloads for each worker
     def _dispatch_bulk_tasks(self, job_id, test_url, model_s3_uris, s3_inference_results, task_type, target_col):
@@ -215,7 +231,7 @@ class InferencePipeline:
                 """
 
     # Polls the SQS response queue until all workers complete their chunk evaluation
-    def _wait_for_bulk_workers(self, job_id, num_workers, s3_inference_results, start_infer, historical_train_time, original_train_url):
+    def _wait_for_bulk_workers(self, job_id, num_workers, s3_inference_results, total_start_time, historical_train_time, start_infer, original_train_url):
         infer_resp_queue = self.aws.sqs_queues["infer_response"]
         print("\n [EVENT LOOP] Master listening actively for Worker inference responses...\n")
 
@@ -237,6 +253,17 @@ class InferencePipeline:
             if 'Messages' in res_infer:
                 for msg in res_infer['Messages']:
                     body = json.loads(msg['Body'])
+
+                    msg_job_id = body.get('job_id')
+                    if msg_job_id != job_id:
+                        print(f" [CLEANUP] Removed zombie message from job: {msg_job_id}")
+                        self.aws.sqs_client.delete_message(
+                            QueueUrl=infer_resp_queue,
+                            ReceiptHandle=msg['ReceiptHandle']
+                        )
+                        continue
+
+
                     task_id = body['task_id']
 
                     # Safe URI extraction for backward compatibility
@@ -249,8 +276,8 @@ class InferencePipeline:
                             f" [ACK] Worker completed Bulk Inference for {task_id}! ({len(s3_inference_results)}/{num_workers})")
 
                         self.aws.update_job_state(
-                            job_id, set(), s3_inference_results, start_infer,
-                            True, historical_train_time, time.time() - start_infer, original_train_url
+                            job_id, set(), s3_inference_results, total_start_time,
+                            True, training_time=historical_train_time,inference_time=time.time() - start_infer, train_url=original_train_url
                         )
 
                         """
@@ -268,6 +295,8 @@ class InferencePipeline:
                         """
 
                     self.aws.sqs_client.delete_message(QueueUrl=infer_resp_queue, ReceiptHandle=msg['ReceiptHandle'])
+                    if len(s3_inference_results) == num_workers:
+                        break
 
         return time.time() - start_infer
 
