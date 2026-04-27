@@ -62,7 +62,7 @@ def load_json_config_from_s3(bucket, dataset_name):
     """
     Downloads the JSON file containing the optimal configurations for the specific dataset.
     """
-    s3_key = f"configs/{dataset_name}_homogeneous_equal_conf.json"
+    s3_key = f"config/{dataset_name}_homogeneous_equal_conf.json"
 
     print(f" [CONFIG] Fetching hyperparams from s3://{bucket}/{s3_key}...")
     try:
